@@ -203,6 +203,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd01a6eb3daaafa260f6fc94c3a6c36390abc2080e38e3e34ced87393fb77d80"
+dependencies = [
+ "cfg-if 1.0.0",
+ "crossbeam-channel",
+ "crossbeam-deque",
+ "crossbeam-epoch",
+ "crossbeam-queue",
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-channel"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06ed27e177f16d65f0f0c22a213e17c696ace5dd64b14258b52f9417ccb52db4"
+dependencies = [
+ "cfg-if 1.0.0",
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-deque"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94af6efb46fef72616855b036a624cf27ba656ffc9be1b9a3c931cfc7749a9a9"
+dependencies = [
+ "cfg-if 1.0.0",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-epoch"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52fb27eab85b17fbb9f6fd667089e07d6a2eb8743d02639ee7f6a7a7729c9c94"
+dependencies = [
+ "cfg-if 1.0.0",
+ "crossbeam-utils",
+ "lazy_static",
+ "memoffset",
+ "scopeguard",
+]
+
+[[package]]
 name = "crossbeam-queue"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -466,6 +514,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9b70ca2a6103ac8b665dc150b142ef0e4e89df640c9e6cf295d189c3caebe5a"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "memoffset"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f83fb6581e8ed1f85fd45c116db8405483899489e38406156c25eb743554361d"
+dependencies = [
+ "autocfg",
 ]
 
 [[package]]
@@ -926,7 +983,7 @@ checksum = "d0c4a1a71e7ae691371c5ca5cc5efc27720881feb81a8ebca5c3fb5b7db601c8"
 name = "vulkano"
 version = "0.1.0"
 dependencies = [
- "vulkano 0.22.0",
+ "vulkano 0.21.0",
  "vulkano-shaders",
  "vulkano-win",
  "winit",
@@ -934,11 +991,11 @@ dependencies = [
 
 [[package]]
 name = "vulkano"
-version = "0.22.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b34b537d0050076f22526f6aab0ee53b1aae135d9d13ac5acd9cf3d916940c7"
+checksum = "297ab08f5a8a03c638641abccf12736ba5591082f2c59458a518948dfb4172ac"
 dependencies = [
- "crossbeam-queue",
+ "crossbeam",
  "fnv",
  "half",
  "lazy_static",
@@ -950,9 +1007,9 @@ dependencies = [
 
 [[package]]
 name = "vulkano-shaders"
-version = "0.22.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76800854ca8014e9758473de4e85a364d469b5ab6f8e59a2d753ce0f3f6588b4"
+checksum = "e99eb70f9cf000f3596b47e35c7e552839ec213a865d01f3f513c742b73948f1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -962,15 +1019,15 @@ dependencies = [
 
 [[package]]
 name = "vulkano-win"
-version = "0.22.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7a193b77f1c4127f64042ac5d77f2a8b8e236fb9e42a32ece8b33b22eb4715e"
+checksum = "8acdaa3c8b810ad1140e853874c677c9c478e2ee101f8a5162d0cc9e40786ad5"
 dependencies = [
  "cocoa 0.20.2",
  "metal",
  "objc",
  "raw-window-handle",
- "vulkano 0.22.0",
+ "vulkano 0.21.0",
  "winit",
 ]
 
