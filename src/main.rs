@@ -20,16 +20,20 @@ use vulkano::sync::{FlushError, GpuFuture};
 
 use vulkano_win::VkSurfaceBuild;
 use winit::dpi::LogicalSize;
-use winit::event::{Event, WindowEvent};
+use winit::event::{Event, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
+use winit_input_helper::WinitInputHelper;
 
+use rand::Rng;
 use std::sync::Arc;
 use std::time::SystemTime;
 
 fn main() {
     let instance = Instance::new(None, &vulkano_win::required_extensions(), None).unwrap();
     let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
+
+    let mut input = WinitInputHelper::new();
 
     let event_loop = EventLoop::new();
     let surface = WindowBuilder::new()
@@ -118,37 +122,99 @@ fn main() {
         CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, vertex_array)
             .unwrap()
     };
-    
+
+    let uniform_buffer = CpuBufferPool::<fs::ty::Uniforms>::new(device.clone(), BufferUsage::all());
+    let data_len;
+    let data_buffer = {
+        // let root_node_bytes = [26u8, 201, 137, 0];
+        // let root_node = u32::from_be_bytes(root_node_bytes);
+        let mut rng = rand::thread_rng();
+        let mut nodes: Vec<u32> = Vec::new();
+
+        // for _ in 0..1 {
+        //     if rng.gen::<bool>() {
+        //         nodes.push(rng.gen_range(0..16777216));
+        //     } else {
+        //         nodes.push(u32::from_be_bytes([
+        //             rng.gen_range(1..3),
+        //             rng.gen_range(0..255),
+        //             rng.gen_range(0..255),
+        //             rng.gen_range(0..255),
+        //         ]));
+        //     }
+        // }
+
+        fn add_leafs(nodes: &mut Vec<u32>, rng: &mut rand::prelude::ThreadRng) {
+            for _ in 0..8 {
+                // Add Leaf
+                nodes.push(u32::from_be_bytes([
+                    rng.gen_range(1..3),
+                    rng.gen_range(0..255),
+                    rng.gen_range(0..255),
+                    rng.gen_range(0..255),
+                ]));
+            }
+        }
+
+        fn subdivie_leaf(
+            nodes: &mut Vec<u32>,
+            rng: &mut rand::prelude::ThreadRng,
+            node: usize,
+        ) -> usize {
+            let i = nodes.len();
+            add_leafs(nodes, rng);
+            nodes[node] = i as u32;
+            i
+        }
+
+        add_leafs(&mut nodes, &mut rng);
+
+        for i in 0..37448 {
+            if rng.gen_range(0..15) != 0 {
+                subdivie_leaf(&mut nodes, &mut rng, i);
+            }
+        }
+
+        // for _ in 0..100 {
+        //     loop {
+        //         let rand = rng.gen_range(0..nodes.len());
+        //         if nodes[rand] / 16777216 != 0 {
+        //             subdivie_leaf(&mut nodes, &mut rng, rand);
+        //             break;
+        //         }
+        //     }
+        // }
+
+        data_len = nodes.len();
+
+        CpuAccessibleBuffer::from_iter(
+            device.clone(),
+            BufferUsage::all(),
+            false,
+            Vec::into_iter(nodes),
+        )
+        .unwrap()
+    };
+
     let _ = include_str!("shader.vert");
     let _ = include_str!("shader.frag");
-    
+
     mod vs {
         vulkano_shaders::shader! {
             ty: "vertex",
             path: "src/shader.vert"
         }
     }
-    
+
     mod fs {
         vulkano_shaders::shader! {
             ty: "fragment",
             path: "src/shader.frag"
         }
     }
-    
     let vs = vs::Shader::load(device.clone()).unwrap();
     let fs = fs::Shader::load(device.clone()).unwrap();
-    
-    let uniform_buffer = CpuBufferPool::<fs::ty::Uniforms>::new(device.clone(), BufferUsage::all());
-    let data_buffer = {
-        // let data = (0..1000).map(|x| (x as f32 / 76.9864).sin().powi(2));
 
-        let root_node_bytes = [26u8, 201, 137, 0];
-        let root_node = u32::from_be_bytes(root_node_bytes);
-
-        CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, std::iter::once(root_node)).unwrap()
-    };
-    
     let render_pass = Arc::new(
         vulkano::single_pass_renderpass!(
             device.clone(),
@@ -196,6 +262,8 @@ fn main() {
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
     let time = SystemTime::now();
+    let cam_pos = [4.0f32, 4.0, 4.0];
+    let cam_rot = [0.9425, 0.785398];
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -237,10 +305,24 @@ fn main() {
             let resolution = [dimensions.width as f32, dimensions.height as f32];
             let time = time.elapsed().unwrap().as_millis() as f32;
 
+            if input.key_pressed(VirtualKeyCode::A) {
+                println!("The 'A' key was pressed on the keyboard");
+            }
+
+            if input.key_released(VirtualKeyCode::Q) || input.quit() {
+                *control_flow = ControlFlow::Exit;
+                return;
+            }
+
             let uniform_subbuffer = {
                 let uniform_data = fs::ty::Uniforms {
                     resolution: resolution,
                     time: time,
+                    cam_pos: cam_pos,
+                    cam_rot: cam_rot,
+                    data_len: data_len as u32,
+                    _dummy0: [0, 0, 0, 0],
+                    _dummy1: [0, 0, 0, 0],
                 };
 
                 uniform_buffer.next(uniform_data).unwrap()
@@ -254,7 +336,6 @@ fn main() {
                     .build()
                     .unwrap(),
             );
-            
             let data_layout = pipeline.descriptor_set_layout(1).unwrap();
             let data_set = Arc::new(
                 PersistentDescriptorSet::start(data_layout.clone())
