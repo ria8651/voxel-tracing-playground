@@ -7,6 +7,7 @@ layout(set = 0, binding = 0) uniform Uniforms {
     float time;
     vec3 cam_pos;
     vec2 cam_rot;
+    float forward_bias;
     uint data_len;
 } u;
 
@@ -56,8 +57,12 @@ float RayBoxDist(vec3 rpos, vec3 rdir, vec3 vmin, vec3 vmax) {
     t[6] = (vmax.z - rpos.z) / rdir.z;
     t[7] = max(max(min(t[1], t[2]), min(t[3], t[4])), min(t[5], t[6]));
     t[8] = min(min(max(t[1], t[2]), max(t[3], t[4])), max(t[5], t[6]));
-    t[9] = (t[8] < 0 || t[7] > t[8]) ? 0.0 : t[7];
-    return t[9];
+    // t[9] = (t[8] < 0 || t[7] > t[8]) ? uintBitsToFloat(0x7F800000) : t[7];
+    if (t[8] < 0 || t[7] > t[8]) {
+        discard;
+    }
+    
+    return t[7];
 }
 
 vec3 RotateX(vec3 vec, float angle) {
@@ -84,12 +89,21 @@ vec3 RotateZ(vec3 vec, float angle) {
     );
 }
 
+// Gets node with index
+// First byte:
+//     0 - Node
+//     1 - Empty Leaf
+//     2 - Solid Leaf
+// Second byte: red
+// Third byte: green
+// Fourth byte: blue
 uint GetData(int index) {
     int remainder = index % 4;
     index /= 4;
     return d.data[index][remainder];
 }
 
+// Returns colour of leaf
 uvec3 UnpackLeaf(uint i, uint f) {
     uvec3 o;
     // uint f = i / 16777216;
@@ -99,11 +113,19 @@ uvec3 UnpackLeaf(uint i, uint f) {
     return o;
 }
 
+// Returns child index of node
 uint UnpackNode(uint i, uint f) {
     return i - f * 16777216;
 }
 
-uint GetLeaf(vec3 pos) {
+struct Leaf {
+    uint i;
+    uint depth;
+    vec3 pos;
+};
+
+// Returns leaf containing position
+Leaf GetLeaf(vec3 pos) {
     int o = 0;
     vec3 npos = vec3(0);
     int depth = 0;
@@ -126,14 +148,125 @@ uint GetLeaf(vec3 pos) {
         if (f == 0) {
             o = int(UnpackNode(i, f));
         } else {
-            return i;
+            return Leaf(i, depth, npos);
         }
     }
 }
 
-// vec3 OctreeRay(vec3 rpos, vec3 rdir) {
-    
-// }
+// Casts ray through octree (slow)
+vec3 OctreeRay(vec3 rpos, vec3 rdir, vec2 st) {
+    // Get position on surface of the octree
+    float dist = RayBoxDist(rpos, rdir, vec3(-1), vec3(1));
+    vec3 hitPos = rpos + rdir * dist;
+
+    // // Get leaf on surface
+    // Leaf leaf = GetLeaf(hitPos);
+    // uint i = leaf.i;
+    // uint f = i / 16777216;
+
+    // If solid return
+    // if (f == 2) {
+    //     return UnpackLeaf(i, f) / 255.0;
+    // }
+
+    // Else step further into the octree
+    vec3 rSign = sign(rdir);
+    // float size = 1.0 / pow(2, leaf.depth - 1);
+    // vec3 tMax = (leaf.pos - hitPos + rSign * size / 2) / rdir;
+    vec3 tDelta = 1.0 / rdir;
+
+    float tCurrent = 0;
+    int steps = 0;
+    vec3 pos = hitPos;
+    while (true) {
+        Leaf leaf = GetLeaf(pos + rdir * u.forward_bias);
+        uint i = leaf.i;
+        uint f = i / 16777216;
+
+        if (steps >= 100 || f == 2) {
+            return vec3(steps / 20.0);
+            return UnpackLeaf(i, f) / 255.0;
+        }
+        
+        float size = 1.0 / pow(2, leaf.depth - 1);
+        vec3 tMax = tCurrent + (leaf.pos - pos + rSign * size / 2.0) / rdir;
+
+        // Go to next intersection
+        if (tMax.x < tMax.y) {
+            if (tMax.x < tMax.z) {
+                tCurrent = tMax.x;
+                // tMax.x += tDelta.x * size;
+            } else {
+                tCurrent = tMax.z;
+                // tMax.z += tDelta.z * size;
+            }
+        } else {
+            if (tMax.y < tMax.z) {
+                tCurrent = tMax.y;
+                // tMax.y += tDelta.y * size;
+            } else {
+                tCurrent = tMax.z;
+                // tMax.z += tDelta.z * size;
+            }
+        }
+
+        // Get voxel in front of ray
+        pos = hitPos + rdir * tCurrent;
+        vec3 s = step(vec3(-1 + u.forward_bias), pos) - step(vec3(1 - u.forward_bias), pos);
+        if (s.x * s.y * s.z == 0.0) {
+            discard;
+        }
+
+        steps += 1;
+    }
+
+    // float tCurrent = 0;
+    // int steps = 0;
+    // while (true) {
+    //     // Get voxel in front of ray
+    //     vec3 pos = hitPos + rdir * (tCurrent + u.forward_bias);
+    //     if (pos.x > 1.0 || pos.x < -1.0 || pos.y > 1.0 || pos.y < -1.0 || pos.z > 1.0 || pos.z < -1.0) {
+    //         return vec3(0);
+    //         return vec3(mix(tCurrent, steps / 8.0, step(0.5, st.x)));
+    //     }
+
+    //     leaf = GetLeaf(pos);
+    //     i = leaf.i;
+    //     f = i / 16777216;
+
+    //     // If solid return
+    //     if (f == 2) {
+    //         return UnpackLeaf(i, f) / 255.0;
+    //         return vec3(mix(tCurrent, steps / 8.0, step(0.5, st.x)));
+    //     }
+
+    //     // Else go to next intersection
+    //     float size = 1.0 / pow(2, leaf.depth - 1);
+    //     if (tMax.x < tMax.y) {
+    //         if (tMax.x < tMax.z) {
+    //             tCurrent = tMax.x;
+    //             tMax.x += tDelta.x * size;
+    //         } else {
+    //             tCurrent = tMax.z;
+    //             tMax.z += tDelta.z * size;
+    //         }
+    //     } else {
+    //         if (tMax.y < tMax.z) {
+    //             tCurrent = tMax.y;
+    //             tMax.y += tDelta.y * size;
+    //         } else {
+    //             tCurrent = tMax.z;
+    //             tMax.z += tDelta.z * size;
+    //         }
+    //     }
+
+    //     steps += 1;
+    // }
+}
+
+float sinfuncbadname(float x) {
+    return sin(x);
+}
 
 void main() {
     vec2 st = gl_FragCoord.xy / u.resolution * vec2(1, -1) + vec2(0, 1);
@@ -145,23 +278,11 @@ void main() {
     vec2 scaled_st = (st - vec2(0.5)) * fov;
     
     vec3 rpos = u.cam_pos;
-    vec3 rdir = vec3(scaled_st.x, -1, -scaled_st.y);
+    vec3 rdir = vec3(-scaled_st.x, 1, scaled_st.y);
     rdir = RotateX(rdir, u.cam_rot.x);
     rdir = RotateY(rdir, u.cam_rot.y);
-    // vec3 rdir = vec3(0, -1, 0);
-    // rdir = RotateX(rdir, u.cam_rot.x + scaled_st.x);
-    // rdir = RotateY(rdir, u.cam_rot.y + scaled_st.y);
 
-    float hit = RayBoxDist(rpos, rdir, vec3(-1, -1, -1), vec3(1, 1, 1));
-    // bool hit = RayBoxIntersect(rpos, rdir, vec3(-1, -1, -1), vec3(1, 1, 1));
-    
-    vec2 pos = vec2(0.5) - st;
-    float r = length(pos) * 1.5;
-    float a = ((atan(pos.y,pos.x) + 3.1415) / 3.1415 / 2.0) + u.time / 5000.0;
-
-    vec3 output_col = vec3(smoothstep(4, 10, hit));
-    // vec3 output_col = vec3(scaled_st, 0);
-    // vec3 col = vec3(int(hit));
+    vec3 output_col = OctreeRay(rpos, rdir, st);
 
     frag_colour = vec4(output_col, 0.0);
 }

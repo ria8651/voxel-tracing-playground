@@ -20,7 +20,7 @@ use vulkano::sync::{FlushError, GpuFuture};
 
 use vulkano_win::VkSurfaceBuild;
 use winit::dpi::LogicalSize;
-use winit::event::{Event, VirtualKeyCode, WindowEvent};
+use winit::event::{DeviceEvent, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 use winit_input_helper::WinitInputHelper;
@@ -28,6 +28,7 @@ use winit_input_helper::WinitInputHelper;
 use rand::Rng;
 use std::sync::Arc;
 use std::time::SystemTime;
+use vecmath::{vec3_add, vec3_cross, vec3_scale};
 
 fn main() {
     let instance = Instance::new(None, &vulkano_win::required_extensions(), None).unwrap();
@@ -44,6 +45,9 @@ fn main() {
         })
         .build_vk_surface(&event_loop, instance.clone())
         .unwrap();
+
+    surface.window().set_cursor_grab(true).unwrap();
+    surface.window().set_cursor_visible(false);
 
     let queue_family = physical
         .queue_families()
@@ -148,10 +152,14 @@ fn main() {
             for _ in 0..8 {
                 // Add Leaf
                 nodes.push(u32::from_be_bytes([
+                    // 0 - Node
+                    // 1 - Empty Leaf
+                    // 2 - Solid Leaf
                     rng.gen_range(1..3),
-                    rng.gen_range(0..255),
-                    rng.gen_range(0..255),
-                    rng.gen_range(0..255),
+                    // Colour
+                    rng.gen_range(120..250),
+                    rng.gen_range(120..250),
+                    rng.gen_range(120..250),
                 ]));
             }
         }
@@ -170,8 +178,9 @@ fn main() {
         add_leafs(&mut nodes, &mut rng);
 
         for i in 0..37448 {
-            if rng.gen_range(0..15) != 0 {
+            if rng.gen_range(0..5) != 0 {
                 subdivie_leaf(&mut nodes, &mut rng, i);
+
             }
         }
 
@@ -262,153 +271,198 @@ fn main() {
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
     let time = SystemTime::now();
-    let cam_pos = [4.0f32, 4.0, 4.0];
-    let cam_rot = [0.9425, 0.785398];
+    let mut cam_pos = [4.0f32, 4.0, 4.0];
+    let mut cam_rot = [-2.19911f32, 0.785398];
+
+    let mut forward_bias = 0.000001;
+    let mut speed = 0.05;
 
     event_loop.run(move |event, _, control_flow| match event {
-        Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } => {
-            *control_flow = ControlFlow::Exit;
-        }
-        Event::WindowEvent {
-            event: WindowEvent::Resized(_),
-            ..
-        } => {
-            recreate_swapchain = true;
-        }
-        Event::RedrawEventsCleared => {
-            previous_frame_end.as_mut().unwrap().cleanup_finished();
+        winit::event::Event::DeviceEvent { event, .. } => match event {
+            DeviceEvent::MouseMotion { delta } => {
+                let sensitivity = 0.005;
+                cam_rot[0] += -delta.1 as f32 * sensitivity;
+                cam_rot[1] += delta.0 as f32 * sensitivity;
+            }
+            _ => {}
+        },
+        _ => {
+            if input.update(&event) {
+                if input.window_resized().is_some() {
+                    recreate_swapchain = true;
+                }
 
-            if recreate_swapchain {
-                let dimensions: [u32; 2] = surface.window().inner_size().into();
-                let (new_swapchain, new_images) =
-                    match swapchain.recreate_with_dimensions(dimensions) {
-                        Ok(r) => r,
-                        Err(SwapchainCreationError::UnsupportedDimensions) => return,
-                        Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+                previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+                if recreate_swapchain {
+                    let dimensions: [u32; 2] = surface.window().inner_size().into();
+                    let (new_swapchain, new_images) =
+                        match swapchain.recreate_with_dimensions(dimensions) {
+                            Ok(r) => r,
+                            Err(SwapchainCreationError::UnsupportedDimensions) => return,
+                            Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+                        };
+
+                    swapchain = new_swapchain;
+                    framebuffers = window_size_dependent_setup(
+                        &new_images,
+                        render_pass.clone(),
+                        &mut dynamic_state,
+                    );
+                    recreate_swapchain = false;
+                }
+
+                // Update Buffers
+
+                if input.key_pressed(VirtualKeyCode::Escape) {
+                    surface.window().set_cursor_grab(false).unwrap();
+                    surface.window().set_cursor_visible(true);
+                }
+
+                if input.mouse_pressed(0) {
+                    surface.window().set_cursor_grab(true).unwrap();
+                    surface.window().set_cursor_visible(false);
+                }
+
+                let dimensions = surface.window().inner_size();
+                let resolution = [dimensions.width as f32, dimensions.height as f32];
+                let time = time.elapsed().unwrap().as_millis() as f32;
+                
+                let forward = input.key_held(VirtualKeyCode::W) as i32
+                    - input.key_held(VirtualKeyCode::S) as i32;
+                let right = input.key_held(VirtualKeyCode::D) as i32
+                    - input.key_held(VirtualKeyCode::A) as i32;
+                let up = input.key_held(VirtualKeyCode::Space) as i32 - input.held_shift() as i32;
+
+                let mut forward_vec = [0.0, 1.0, 0.0];
+                forward_vec = rotate_x(forward_vec, cam_rot[0]);
+                forward_vec = rotate_y(forward_vec, cam_rot[1]);
+
+                let mut right_vec = [-1.0, 0.0, 0.0];
+                right_vec = rotate_y(right_vec, cam_rot[1]);
+
+                let up_vec = vec3_cross(forward_vec, right_vec);
+
+                speed -= input.scroll_diff() / 100.0;
+                if speed <= 0.0 {
+                    speed = 0.0;
+                }
+
+                cam_pos = vec3_add(cam_pos, vec3_scale(forward_vec, forward as f32 * speed));
+                cam_pos = vec3_add(cam_pos, vec3_scale(right_vec, right as f32 * speed));
+                cam_pos = vec3_add(cam_pos, vec3_scale(up_vec, up as f32 * speed));
+
+                if input.key_pressed(VirtualKeyCode::Up) {
+                    forward_bias += 0.001;
+                }
+
+                if input.key_pressed(VirtualKeyCode::Down) {
+                    forward_bias -= 0.001;
+                }
+
+                if input.key_released(VirtualKeyCode::Q) || input.quit() {
+                    *control_flow = ControlFlow::Exit;
+                    return;
+                }
+
+                let uniform_subbuffer = {
+                    let uniform_data = fs::ty::Uniforms {
+                        resolution: resolution,
+                        time: time,
+                        cam_pos: cam_pos,
+                        cam_rot: cam_rot,
+                        forward_bias: forward_bias,
+                        data_len: data_len as u32,
+                        _dummy0: [0, 0, 0, 0],
+                        _dummy1: [0, 0, 0, 0],
                     };
 
-                swapchain = new_swapchain;
-                framebuffers = window_size_dependent_setup(
-                    &new_images,
-                    render_pass.clone(),
-                    &mut dynamic_state,
+                    uniform_buffer.next(uniform_data).unwrap()
+                };
+
+                let uniform_layout = pipeline.descriptor_set_layout(0).unwrap();
+                let uniform_set = Arc::new(
+                    PersistentDescriptorSet::start(uniform_layout.clone())
+                        .add_buffer(uniform_subbuffer)
+                        .unwrap()
+                        .build()
+                        .unwrap(),
                 );
-                recreate_swapchain = false;
-            }
+                let data_layout = pipeline.descriptor_set_layout(1).unwrap();
+                let data_set = Arc::new(
+                    PersistentDescriptorSet::start(data_layout.clone())
+                        .add_buffer(data_buffer.clone())
+                        .unwrap()
+                        .build()
+                        .unwrap(),
+                );
 
-            // Update Buffers
+                let (image_num, suboptimal, acquire_future) =
+                    match swapchain::acquire_next_image(swapchain.clone(), None) {
+                        Ok(r) => r,
+                        Err(AcquireError::OutOfDate) => {
+                            recreate_swapchain = true;
+                            return;
+                        }
+                        Err(e) => panic!("Failed to acquire next image: {:?}", e),
+                    };
 
-            let dimensions = surface.window().inner_size();
-            let resolution = [dimensions.width as f32, dimensions.height as f32];
-            let time = time.elapsed().unwrap().as_millis() as f32;
+                if suboptimal {
+                    recreate_swapchain = true;
+                }
 
-            if input.key_pressed(VirtualKeyCode::A) {
-                println!("The 'A' key was pressed on the keyboard");
-            }
-
-            if input.key_released(VirtualKeyCode::Q) || input.quit() {
-                *control_flow = ControlFlow::Exit;
-                return;
-            }
-
-            let uniform_subbuffer = {
-                let uniform_data = fs::ty::Uniforms {
-                    resolution: resolution,
-                    time: time,
-                    cam_pos: cam_pos,
-                    cam_rot: cam_rot,
-                    data_len: data_len as u32,
-                    _dummy0: [0, 0, 0, 0],
-                    _dummy1: [0, 0, 0, 0],
-                };
-
-                uniform_buffer.next(uniform_data).unwrap()
-            };
-
-            let uniform_layout = pipeline.descriptor_set_layout(0).unwrap();
-            let uniform_set = Arc::new(
-                PersistentDescriptorSet::start(uniform_layout.clone())
-                    .add_buffer(uniform_subbuffer)
-                    .unwrap()
-                    .build()
-                    .unwrap(),
-            );
-            let data_layout = pipeline.descriptor_set_layout(1).unwrap();
-            let data_set = Arc::new(
-                PersistentDescriptorSet::start(data_layout.clone())
-                    .add_buffer(data_buffer.clone())
-                    .unwrap()
-                    .build()
-                    .unwrap(),
-            );
-
-            let (image_num, suboptimal, acquire_future) =
-                match swapchain::acquire_next_image(swapchain.clone(), None) {
-                    Ok(r) => r,
-                    Err(AcquireError::OutOfDate) => {
-                        recreate_swapchain = true;
-                        return;
-                    }
-                    Err(e) => panic!("Failed to acquire next image: {:?}", e),
-                };
-
-            if suboptimal {
-                recreate_swapchain = true;
-            }
-
-            let clear_values = vec![[0.3333, 0.6745, 0.1059, 1.0].into()];
-            let mut builder =
-                AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
-                    .unwrap();
-
-            builder
-                .begin_render_pass(
-                    framebuffers[image_num].clone(),
-                    SubpassContents::Inline,
-                    clear_values,
+                let clear_values = vec![[0.3333, 0.6745, 0.1059, 1.0].into()];
+                let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
+                    device.clone(),
+                    queue.family(),
                 )
-                .unwrap()
-                .draw(
-                    pipeline.clone(),
-                    &dynamic_state,
-                    vertex_buffer.clone(),
-                    (uniform_set.clone(), data_set.clone()),
-                    (),
-                    None,
-                )
-                .unwrap()
-                .end_render_pass()
                 .unwrap();
 
-            let command_buffer = builder.build().unwrap();
+                builder
+                    .begin_render_pass(
+                        framebuffers[image_num].clone(),
+                        SubpassContents::Inline,
+                        clear_values,
+                    )
+                    .unwrap()
+                    .draw(
+                        pipeline.clone(),
+                        &dynamic_state,
+                        vertex_buffer.clone(),
+                        (uniform_set.clone(), data_set.clone()),
+                        (),
+                        None,
+                    )
+                    .unwrap()
+                    .end_render_pass()
+                    .unwrap();
 
-            let future = previous_frame_end
-                .take()
-                .unwrap()
-                .join(acquire_future)
-                .then_execute(queue.clone(), command_buffer)
-                .unwrap()
-                .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
-                .then_signal_fence_and_flush();
+                let command_buffer = builder.build().unwrap();
 
-            match future {
-                Ok(future) => {
-                    previous_frame_end = Some(future.boxed());
-                }
-                Err(FlushError::OutOfDate) => {
-                    recreate_swapchain = true;
-                    previous_frame_end = Some(sync::now(device.clone()).boxed());
-                }
-                Err(e) => {
-                    println!("Failed to flush future: {:?}", e);
-                    previous_frame_end = Some(sync::now(device.clone()).boxed());
+                let future = previous_frame_end
+                    .take()
+                    .unwrap()
+                    .join(acquire_future)
+                    .then_execute(queue.clone(), command_buffer)
+                    .unwrap()
+                    .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
+                    .then_signal_fence_and_flush();
+
+                match future {
+                    Ok(future) => {
+                        previous_frame_end = Some(future.boxed());
+                    }
+                    Err(FlushError::OutOfDate) => {
+                        recreate_swapchain = true;
+                        previous_frame_end = Some(sync::now(device.clone()).boxed());
+                    }
+                    Err(e) => {
+                        println!("Failed to flush future: {:?}", e);
+                        previous_frame_end = Some(sync::now(device.clone()).boxed());
+                    }
                 }
             }
         }
-        _ => (),
     });
 }
 
@@ -438,4 +492,20 @@ fn window_size_dependent_setup(
             ) as Arc<dyn FramebufferAbstract + Send + Sync>
         })
         .collect::<Vec<_>>()
+}
+
+fn rotate_x(vec: [f32; 3], angle: f32) -> [f32; 3] {
+    [
+        vec[0],
+        vec[1] * angle.cos() - vec[2] * angle.sin(),
+        vec[1] * angle.sin() + vec[2] * angle.cos(),
+    ]
+}
+
+fn rotate_y(vec: [f32; 3], angle: f32) -> [f32; 3] {
+    [
+        vec[0] * angle.cos() + vec[2] * angle.sin(),
+        vec[1],
+        -vec[0] * angle.sin() + vec[2] * angle.cos(),
+    ]
 }
