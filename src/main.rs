@@ -25,7 +25,8 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 use winit_input_helper::WinitInputHelper;
 
-use rand::Rng;
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
 use std::sync::Arc;
 use std::time::SystemTime;
 use vecmath::{vec3_add, vec3_cross, vec3_scale};
@@ -132,30 +133,17 @@ fn main() {
     let data_buffer = {
         // let root_node_bytes = [26u8, 201, 137, 0];
         // let root_node = u32::from_be_bytes(root_node_bytes);
-        let mut rng = rand::thread_rng();
+        let mut rng: SmallRng = SeedableRng::seed_from_u64(0);
         let mut nodes: Vec<u32> = Vec::new();
 
-        // for _ in 0..1 {
-        //     if rng.gen::<bool>() {
-        //         nodes.push(rng.gen_range(0..16777216));
-        //     } else {
-        //         nodes.push(u32::from_be_bytes([
-        //             rng.gen_range(1..3),
-        //             rng.gen_range(0..255),
-        //             rng.gen_range(0..255),
-        //             rng.gen_range(0..255),
-        //         ]));
-        //     }
-        // }
-
-        fn add_leafs(nodes: &mut Vec<u32>, rng: &mut rand::prelude::ThreadRng) {
+        fn add_leafs(nodes: &mut Vec<u32>, rng: &mut SmallRng) {
             for _ in 0..8 {
                 // Add Leaf
                 nodes.push(u32::from_be_bytes([
                     // 0 - Node
                     // 1 - Empty Leaf
                     // 2 - Solid Leaf
-                    rng.gen_range(1..3),
+                    if rng.gen_range(0..5) != 0 { 1 } else { 2 },
                     // Colour
                     rng.gen_range(120..250),
                     rng.gen_range(120..250),
@@ -164,35 +152,22 @@ fn main() {
             }
         }
 
-        fn subdivie_leaf(
-            nodes: &mut Vec<u32>,
-            rng: &mut rand::prelude::ThreadRng,
-            node: usize,
-        ) -> usize {
+        fn subdivie_leaf(nodes: &mut Vec<u32>, rng: &mut SmallRng, node: usize) -> usize {
             let i = nodes.len();
             add_leafs(nodes, rng);
             nodes[node] = i as u32;
             i
         }
 
-        add_leafs(&mut nodes, &mut rng);
-
-        for i in 0..37448 {
-            if rng.gen_range(0..5) != 0 {
-                subdivie_leaf(&mut nodes, &mut rng, i);
-
-            }
+        for _ in 0..4 {
+            nodes.push(0);
         }
 
-        // for _ in 0..100 {
-        //     loop {
-        //         let rand = rng.gen_range(0..nodes.len());
-        //         if nodes[rand] / 16777216 != 0 {
-        //             subdivie_leaf(&mut nodes, &mut rng, rand);
-        //             break;
-        //         }
-        //     }
-        // }
+        for i in 0..100000 {
+            if rng.gen_range(0..5) != 0 {
+                subdivie_leaf(&mut nodes, &mut rng, i);
+            }
+        }
 
         data_len = nodes.len();
 
@@ -208,19 +183,6 @@ fn main() {
     let _ = include_str!("shader.vert");
     let _ = include_str!("shader.frag");
 
-    mod vs {
-        vulkano_shaders::shader! {
-            ty: "vertex",
-            path: "src/shader.vert"
-        }
-    }
-
-    mod fs {
-        vulkano_shaders::shader! {
-            ty: "fragment",
-            path: "src/shader.frag"
-        }
-    }
     let vs = vs::Shader::load(device.clone()).unwrap();
     let fs = fs::Shader::load(device.clone()).unwrap();
 
@@ -271,11 +233,12 @@ fn main() {
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
     let time = SystemTime::now();
-    let mut cam_pos = [4.0f32, 4.0, 4.0];
-    let mut cam_rot = [-2.19911f32, 0.785398];
+    let mut last_time = time.elapsed().unwrap();
+    let mut cam_pos = [2.0, 2.0, 2.0];
+    let mut cam_rot = [-2.19911, 0.785398];
 
-    let mut forward_bias = 0.000001;
-    let mut speed = 0.05;
+    let mut normal_bias = 0.000001;
+    let mut speed = 0.02;
 
     event_loop.run(move |event, _, control_flow| match event {
         winit::event::Event::DeviceEvent { event, .. } => match event {
@@ -309,10 +272,17 @@ fn main() {
                         render_pass.clone(),
                         &mut dynamic_state,
                     );
+
                     recreate_swapchain = false;
                 }
 
                 // Update Buffers
+
+                let fps = (1.0
+                    / ((time.elapsed().unwrap() - last_time).as_millis() as f64 / 1000.0))
+                    as i32;
+                println!("{:?}", fps);
+                last_time = time.elapsed().unwrap();
 
                 if input.key_pressed(VirtualKeyCode::Escape) {
                     surface.window().set_cursor_grab(false).unwrap();
@@ -327,7 +297,6 @@ fn main() {
                 let dimensions = surface.window().inner_size();
                 let resolution = [dimensions.width as f32, dimensions.height as f32];
                 let time = time.elapsed().unwrap().as_millis() as f32;
-                
                 let forward = input.key_held(VirtualKeyCode::W) as i32
                     - input.key_held(VirtualKeyCode::S) as i32;
                 let right = input.key_held(VirtualKeyCode::D) as i32
@@ -353,11 +322,18 @@ fn main() {
                 cam_pos = vec3_add(cam_pos, vec3_scale(up_vec, up as f32 * speed));
 
                 if input.key_pressed(VirtualKeyCode::Up) {
-                    forward_bias += 0.001;
+                    normal_bias += 0.000001;
                 }
 
                 if input.key_pressed(VirtualKeyCode::Down) {
-                    forward_bias -= 0.001;
+                    normal_bias -= 0.000001;
+                }
+
+                if input.key_pressed(VirtualKeyCode::I) {
+                    println!(
+                        "pos: ({}, {}, {}), rot: ({}, {})",
+                        cam_pos[0], cam_pos[1], cam_pos[2], cam_rot[0], cam_rot[1]
+                    );
                 }
 
                 if input.key_released(VirtualKeyCode::Q) || input.quit() {
@@ -371,7 +347,7 @@ fn main() {
                         time: time,
                         cam_pos: cam_pos,
                         cam_rot: cam_rot,
-                        forward_bias: forward_bias,
+                        normal_bias: normal_bias,
                         data_len: data_len as u32,
                         _dummy0: [0, 0, 0, 0],
                         _dummy1: [0, 0, 0, 0],
@@ -508,4 +484,18 @@ fn rotate_y(vec: [f32; 3], angle: f32) -> [f32; 3] {
         vec[1],
         -vec[0] * angle.sin() + vec[2] * angle.cos(),
     ]
+}
+
+mod vs {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "src/shader.vert"
+    }
+}
+
+mod fs {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        path: "src/shader.frag"
+    }
 }
