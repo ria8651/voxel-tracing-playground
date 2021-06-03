@@ -32,6 +32,7 @@ use std::time::SystemTime;
 use vecmath::{vec3_add, vec3_cross, vec3_scale};
 
 fn main() {
+    // #region Initilisation
     let instance = Instance::new(None, &vulkano_win::required_extensions(), None).unwrap();
     let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
 
@@ -69,8 +70,12 @@ fn main() {
     .unwrap();
 
     let queue = queues.next().unwrap();
+    // #endregion
 
-    let (mut swapchain, images) = {
+    // #region Image Setup
+    let dimensions: [u32; 2] = surface.window().inner_size().into();
+
+    let (mut swapchain, output_images) = {
         let capabilities = surface.capabilities(physical).unwrap();
         let alpha = capabilities
             .supported_composite_alpha
@@ -78,7 +83,6 @@ fn main() {
             .next()
             .unwrap();
         let format = capabilities.supported_formats[0].0;
-        let dimensions: [u32; 2] = surface.window().inner_size().into();
         Swapchain::new(
             device.clone(),
             surface.clone(),
@@ -97,9 +101,9 @@ fn main() {
         )
         .unwrap()
     };
+    // #endregion
 
-    // Buffer Setup
-
+    // #region Buffer Setup
     let vertex_buffer = {
         #[derive(Default, Debug, Clone)]
         struct Vertex {
@@ -179,7 +183,9 @@ fn main() {
         )
         .unwrap()
     };
+    // #endregion
 
+    // #region Pipline Setup
     let _ = include_str!("shader.vert");
     let _ = include_str!("shader.frag");
 
@@ -205,7 +211,7 @@ fn main() {
         .unwrap(),
     );
 
-    let pipeline = Arc::new(
+    let graphics_pipeline = Arc::new(
         GraphicsPipeline::start()
             .vertex_input_single_buffer()
             .vertex_shader(vs.main_entry_point(), ())
@@ -216,6 +222,7 @@ fn main() {
             .build(device.clone())
             .unwrap(),
     );
+    // #endregion
 
     let mut dynamic_state = DynamicState {
         line_width: None,
@@ -227,7 +234,7 @@ fn main() {
     };
 
     let mut framebuffers =
-        window_size_dependent_setup(&images, render_pass.clone(), &mut dynamic_state);
+        window_size_dependent_setup(&output_images, render_pass.clone(), &mut dynamic_state);
 
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
@@ -276,8 +283,7 @@ fn main() {
                     recreate_swapchain = false;
                 }
 
-                // Update Buffers
-
+                // #region Update Buffers
                 let fps = (1.0
                     / ((time.elapsed().unwrap() - last_time).as_millis() as f64 / 1000.0))
                     as i32;
@@ -356,7 +362,7 @@ fn main() {
                     uniform_buffer.next(uniform_data).unwrap()
                 };
 
-                let uniform_layout = pipeline.descriptor_set_layout(0).unwrap();
+                let uniform_layout = graphics_pipeline.descriptor_set_layout(0).unwrap();
                 let uniform_set = Arc::new(
                     PersistentDescriptorSet::start(uniform_layout.clone())
                         .add_buffer(uniform_subbuffer)
@@ -364,7 +370,7 @@ fn main() {
                         .build()
                         .unwrap(),
                 );
-                let data_layout = pipeline.descriptor_set_layout(1).unwrap();
+                let data_layout = graphics_pipeline.descriptor_set_layout(1).unwrap();
                 let data_set = Arc::new(
                     PersistentDescriptorSet::start(data_layout.clone())
                         .add_buffer(data_buffer.clone())
@@ -372,6 +378,7 @@ fn main() {
                         .build()
                         .unwrap(),
                 );
+                // #endregion
 
                 let (image_num, suboptimal, acquire_future) =
                     match swapchain::acquire_next_image(swapchain.clone(), None) {
@@ -402,7 +409,7 @@ fn main() {
                     )
                     .unwrap()
                     .draw(
-                        pipeline.clone(),
+                        graphics_pipeline.clone(),
                         &dynamic_state,
                         vertex_buffer.clone(),
                         (uniform_set.clone(), data_set.clone()),
@@ -443,11 +450,11 @@ fn main() {
 }
 
 fn window_size_dependent_setup(
-    images: &[Arc<SwapchainImage<Window>>],
+    output_images: &[Arc<SwapchainImage<Window>>],
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
     dynamic_state: &mut DynamicState,
 ) -> Vec<Arc<dyn FramebufferAbstract + Send + Sync>> {
-    let dimensions = images[0].dimensions();
+    let dimensions = output_images[0].dimensions();
 
     let viewport = Viewport {
         origin: [0.0, 0.0],
@@ -456,7 +463,7 @@ fn window_size_dependent_setup(
     };
     dynamic_state.viewports = Some(vec![viewport]);
 
-    images
+    output_images
         .iter()
         .map(|image| {
             Arc::new(
