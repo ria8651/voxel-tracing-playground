@@ -3,7 +3,7 @@
 layout(location = 0) out vec4 frag_colour;
 
 layout(set = 0, binding = 0) uniform Uniforms {
-    vec2 resolution;
+    uvec2 resolution;
     float time;
     vec3 cam_pos;
     vec2 cam_rot;
@@ -11,9 +11,31 @@ layout(set = 0, binding = 0) uniform Uniforms {
     uint data_len;
 } u;
 
-layout(set = 1, binding = 0) buffer Data {
+layout(set = 0, binding = 1) buffer FrameData {
+    uint pixels[];
+} frameData;
+
+layout(set = 0, binding = 2) buffer Data {
     uvec4 data[];
 } d;
+
+// Packs vec3 (from 0 to 1) into uint
+uint PackColour(vec4 colour) {
+    uvec4 c = uvec4(colour * 255.0);
+    uint o = c.x * 16777216;
+    o += c.y * 65536;
+    o += c.z * 256;
+    o += c.w;
+    return o;
+}
+
+// Writes pixel to buffer for post processing
+void WritePixel(vec2 pos, vec3 colour) {
+    clamp(pos, vec2(0, 0), vec2(0.9999999, 0.9999999));
+    uvec2 intPos = uvec2(pos * vec2(u.resolution));
+    uint pixelID = intPos.y * u.resolution.x + intPos.x;
+    frameData.pixels[pixelID] = PackColour(vec4(colour, 1.0));
+}
 
 bool RayBoxIntersect(vec3 rpos, vec3 rdir, vec3 vmin, vec3 vmax) {
     vec3 bounds[2] = vec3[2](vmin, vmax);
@@ -250,9 +272,6 @@ HitInfo OctreeRay(vec3 rpos, vec3 rdir, int maxSteps) {
 void main() {
     vec2 st = gl_FragCoord.xy / u.resolution * vec2(1, -1) + vec2(0, 1);
 
-    int divisions = 1;
-    st = mod(st, 1.0 / float(divisions)) * float(divisions);
-
     float fov = 1.5;
     vec2 scaled_st = (st - vec2(0.5)) * fov;
     
@@ -287,46 +306,12 @@ void main() {
             vec3 reflectDir = reflect(lightDir, hit.normal);
             float specular = pow(max(dot(rdir, reflectDir), 0.0), 32) * 0.5;
 
-            output_col = (ambient + diffuse + specular) * hit.colour;
+            output_col = clamp(ambient + diffuse + specular, 0, 1) * hit.colour;
         }
     } else {
-        discard;
+        output_col = vec3(0.1255, 0.7373, 0.8471);
     }
-    // vec3 output_col = hit.colour;
 
-    frag_colour = vec4(output_col, 0.0);
+    WritePixel(st, output_col);
+    frag_colour = vec4(1.0, 0.0, 0.0, 1.0);
 }
-
-// Octree data debuging
-
-// vec3 pos = vec3(st * 2 - vec2(1), sin(u.time / 2000.0));
-
-// uint i = GetLeaf(pos);
-// uint f = i / 16777216;
-// vec3 output_col = UnpackLeaf(i, f) / 255.0;
-
-// Octree data structure debuging
-
-// ivec2 pos = ivec2(st * 50);
-
-// uint i = GetData(pos.y * 30 + pos.x);
-// uint f = i / 16777216;
-
-// vec3 output_col;
-// // 0 - Node
-// // 1 - Empty Leaf
-// // 2 - Solid Leaf
-// if (f == 0) {
-//     // Node
-//     uint firstChildIndex = UnpackNode(i, f);
-//     output_col = vec3(firstChildIndex / 255.0);
-// } else {
-//     // Leaf
-//     uvec3 voxelCol = UnpackLeaf(i, f);
-//     if (f == 1) {
-//         output_col = vec3(0, 0.4, 0);
-//     } else {
-//         // output_col = voxelCol / 255.0;
-//         output_col = vec3(0, 0.8, 0);
-//     }
-// }
