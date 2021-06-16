@@ -31,6 +31,10 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use vecmath::{vec3_add, vec3_cross, vec3_scale};
 
+static NUMBER_OF_SUBDIVISIONS: usize = 5;
+static RENDER_BUFFER_COUNT: u32 = 3;
+const FIBONACHI_LENGTH: usize = 20;
+
 fn main() {
     // #region Initilisation
     let instance = Instance::new(None, &vulkano_win::required_extensions(), None).unwrap();
@@ -134,8 +138,10 @@ fn main() {
             .unwrap()
     };
 
-    let graphics_uniform_buffer = CpuBufferPool::<graphics_fs::ty::Uniforms>::new(device.clone(), BufferUsage::all());
-    let post_uniform_buffer = CpuBufferPool::<post_fs::ty::Uniforms>::new(device.clone(), BufferUsage::all());
+    let graphics_uniform_buffer =
+        CpuBufferPool::<graphics_fs::ty::Uniforms>::new(device.clone(), BufferUsage::all());
+    let post_uniform_buffer =
+        CpuBufferPool::<post_fs::ty::Uniforms>::new(device.clone(), BufferUsage::all());
 
     let data_len;
     let data_buffer = {
@@ -171,7 +177,7 @@ fn main() {
             nodes.push(0);
         }
 
-        for i in 0..100000 {
+        for i in 0..NUMBER_OF_SUBDIVISIONS {
             if rng.gen_range(0..5) != 0 {
                 subdivie_leaf(&mut nodes, &mut rng, i);
             }
@@ -187,6 +193,25 @@ fn main() {
         )
         .unwrap()
     };
+
+    let golden_ratio = 1.61803398875;
+    let pi = 3.14159265359;
+
+    let mut fibonacci_spiral = [[0.0; 4]; FIBONACHI_LENGTH];
+    for i in 1..FIBONACHI_LENGTH + 1 {
+        let pol = [
+            (i as f32 / golden_ratio) % 1.0,
+            i as f32 / FIBONACHI_LENGTH as f32,
+        ];
+
+        let theta = 2.0 * pi * pol[0];
+        let radius = pol[1]; // Add .sqrt() for an even distribution
+
+        let pos = [radius * theta.cos(), radius * theta.sin()];
+
+        fibonacci_spiral[i - 1][0] = pos[0];
+        fibonacci_spiral[i - 1][1] = pos[1];
+    }
     // #endregion
 
     // #region Pipeline setup
@@ -263,8 +288,10 @@ fn main() {
 
     let time = SystemTime::now();
     let mut last_time = time.elapsed().unwrap();
-    let mut cam_pos = [2.0, 2.0, 2.0];
+    let mut cam_pos = [1.0, 1.0, 1.0];
     let mut cam_rot = [-2.19911, 0.785398];
+
+    let light_pos = [1.2, 1.5, -1.9];
 
     let mut normal_bias = 0.000001;
     let mut speed = 0.02;
@@ -378,15 +405,30 @@ fn main() {
                 // #endregion
 
                 // #region Create Buffers
+                let graphics_cam = graphics_fs::ty::Camera {
+                    pos: cam_pos,
+                    rot: cam_rot,
+                    fov: 1.5,
+                    max_depth: 10.0,
+                    _dummy0: [0, 0, 0, 0],
+                };
+
+                let post_cam = post_fs::ty::Camera {
+                    pos: cam_pos,
+                    rot: cam_rot,
+                    fov: 1.5,
+                    max_depth: 10.0,
+                    _dummy0: [0, 0, 0, 0],
+                };
+
                 let graphics_uniforms = graphics_fs::ty::Uniforms {
                     resolution: dimensions,
+                    render_buffer_count: RENDER_BUFFER_COUNT,
                     time: time,
-                    cam_pos: cam_pos,
-                    cam_rot: cam_rot,
+                    cam: graphics_cam,
+                    light_pos: light_pos,
                     normal_bias: normal_bias,
                     data_len: data_len,
-                    _dummy0: [0, 0, 0, 0],
-                    _dummy1: [0, 0, 0, 0],
                 };
                 let graphics_set = Arc::new(
                     PersistentDescriptorSet::start(
@@ -404,7 +446,12 @@ fn main() {
 
                 let post_uniforms = post_fs::ty::Uniforms {
                     resolution: dimensions,
+                    render_buffer_count: RENDER_BUFFER_COUNT,
                     time: time,
+                    cam: post_cam,
+                    light_pos: light_pos,
+                    fibonacci_spiral: fibonacci_spiral,
+                    _dummy0: [0, 0, 0, 0],
                 };
                 let post_set = Arc::new(
                     PersistentDescriptorSet::start(
@@ -434,7 +481,7 @@ fn main() {
                 }
 
                 // #region Render Frame
-                let clear_values = vec![[0.0, 0.0, 1.0, 1.0].into()];
+                let clear_values = vec![[0.1255, 0.7373, 0.8471, 1.0].into()];
 
                 let mut graphics_builder = AutoCommandBufferBuilder::primary_one_time_submit(
                     device.clone(),
@@ -530,7 +577,7 @@ fn size_dependent_setup(
         })
         .collect::<Vec<_>>();
 
-    let length = dimensions[0] * dimensions[1];
+    let length = dimensions[0] * dimensions[1] * RENDER_BUFFER_COUNT;
     let data = (0..length).map(|n| n);
     let unprocessed_image =
         CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, data).unwrap();
@@ -564,6 +611,7 @@ mod vs {
 mod graphics_fs {
     vulkano_shaders::shader! {
         ty: "fragment",
+        include: [ "src" ],
         path: "src/graphics.frag"
     }
 }
@@ -571,6 +619,7 @@ mod graphics_fs {
 mod post_fs {
     vulkano_shaders::shader! {
         ty: "fragment",
+        include: [ "src" ],
         path: "src/post.frag"
     }
 }
