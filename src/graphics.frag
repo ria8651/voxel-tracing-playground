@@ -13,28 +13,11 @@ layout(set = 0, binding = 0) uniform Uniforms {
     uint data_len;
 } u;
 
-layout(set = 0, binding = 1) buffer FrameData {
-    uint pixels[];
-} frameData;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2DArray frame_buffer;
 
 layout(set = 0, binding = 2) buffer Data {
     uvec4 data[];
 } d;
-
-// Writes pixel to buffer for post processing
-// Layout:
-//  0.xyz colour
-//  0.w shadow map
-//  1.xy depth
-//  1.z diffuse
-//  1.w specular
-void WriteFramebuffer(uvec2 pos, uint p, uint render_buffer) {
-    render_buffer = clamp(render_buffer, 0, u.render_buffer_count - 1);
-
-    uint buffer_length = u.resolution.x * u.resolution.y;
-    uint pixelID = render_buffer * buffer_length + pos.y * u.resolution.x + pos.x;
-    frameData.pixels[pixelID] = p;
-}
 
 bool RayBoxIntersect(Ray r, vec3 vmin, vec3 vmax) {
     vec3 bounds[2] = vec3[2](vmin, vmax);
@@ -144,7 +127,8 @@ struct HitInfo {
     vec3 pos;
 };
 
-// Casts ray through octree (slow)
+// Casts ray through octree (relatively slow)
+// https://github.com/cgyurgyik/fast-voxel-traversal-algorithm/blob/566dab84a0b44de3d2f1c64b423d63e525ab05bd/overview/FastVoxelTraversalOverview.md
 HitInfo OctreeRay(Ray r, int maxSteps) {
     float dist = 0;
     if (!PointInOctree(r.pos)) {
@@ -221,8 +205,10 @@ HitInfo OctreeRay(Ray r, int maxSteps) {
 }
 
 void main() {
-    uvec2 px = uvec2(gl_FragCoord.xy);
+    ivec2 px = ivec2(gl_FragCoord.xy);
     vec2 st = vec2(px) / u.resolution * vec2(1, -1) + vec2(0, 1);
+    float aspect = u.resolution.y / float(u.resolution.x);
+    st = (st - 0.5) * vec2(1, aspect) + 0.5;
 
     vec3 output_col = vec3(0.1255, 0.7373, 0.8471);
     float depth = 1.0;
@@ -232,7 +218,7 @@ void main() {
 
     Ray ray = GetCameraRay(u.cam, st);
     HitInfo hit = OctreeRay(ray, 100);
-    vec3 normal = (hit.normal + 1) / 2;
+    vec3 normal = hit.normal;
 
     if (bool(hit.hit)) {
         output_col = hit.colour;
@@ -252,13 +238,8 @@ void main() {
         }
     }
 
-    uint fBuffer1 = Packu8(uvec4(output_col * 255, 0));
-    uint fBuffer2 = Packu8(uvec4(normal * 255, 0)); 
-    uint fBuffer3 = Packu16u16(uvec2(depth * 65535, ceil(shadow_map * 65535.0)));
-
-    WriteFramebuffer(px, fBuffer1, 0);
-    WriteFramebuffer(px, fBuffer2, 1);
-    WriteFramebuffer(px, fBuffer3, 2);
+    imageStore(frame_buffer, ivec3(px, 0), vec4(output_col, depth));
+    imageStore(frame_buffer, ivec3(px, 1), vec4(normal, shadow_map));
 
     frag_colour = vec4(1.0, 0.0, 0.0, 1.0);
 }

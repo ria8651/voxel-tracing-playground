@@ -10,35 +10,26 @@ layout(set = 0, binding = 0) uniform Uniforms {
     Camera cam;
     vec3 light_pos;
     vec4 fibonacci_spiral[20];
+    bool debug_setting;
 } u;
 
-layout(set = 0, binding = 1) buffer FrameData {
-    uint pixels[];
-} frameData;
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2DArray frame_buffer;
 
 const float pi = 3.1415926538;
 
-uint ReadFramebuffer(uvec2 pos, uint render_buffer) {
-    pos = clamp(pos, uvec2(0), u.resolution);
-    render_buffer = clamp(render_buffer, 0, u.render_buffer_count - 1);
-
-    uint buffer_length = u.resolution.x * u.resolution.y;
-    uint pixelID = render_buffer * buffer_length + pos.y * u.resolution.x + pos.x;
-    return frameData.pixels[pixelID];
-}
-
 void main() {
-    uvec2 px = uvec2(gl_FragCoord.xy);
+    ivec2 px = ivec2(gl_FragCoord.xy);
     vec2 st = vec2(px) / u.resolution * vec2(1, -1) + vec2(0, 1);
-    
-    vec4 layer0 = Unpacku8(ReadFramebuffer(px, 0)) / 255.0;
-    vec4 layer1 = Unpacku8(ReadFramebuffer(px, 1)) / 255.0;
-    vec2 layer2 = Unpacku16u16(ReadFramebuffer(px, 2)) / 65535.0;
+    float aspect = u.resolution.y / float(u.resolution.x);
+    st = (st - 0.5) * vec2(1, aspect) + 0.5;
 
-    vec3 colour = layer0.xyz;
-    vec3 normal = layer1.xyz * 2 - 1;
-    float depth = layer2.x * u.cam.max_depth;
-    float shadow_map = layer2.y;
+    vec4 layer0 = imageLoad(frame_buffer, ivec3(px, 0));
+    vec4 layer1 = imageLoad(frame_buffer, ivec3(px, 1));
+
+    vec3 colour = layer0.rgb;
+    float depth = layer0.a * u.cam.max_depth;
+    vec3 normal = layer1.rgb;
+    float shadow_map = layer1.a;
 
     Ray ray = GetCameraRay(u.cam, st);
     vec3 pos = ray.pos + ray.dir * depth;
@@ -47,10 +38,13 @@ void main() {
     vec3 halfwayDir = normalize(lightDir - ray.dir);
 
     float diffuse = max(dot(normal, lightDir), 0.0);
-    float specular = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
+    float specular = pow(max(dot(normal, halfwayDir), 0.0), 10.0) * int(diffuse > 0.0);
 
+    // Creating soft shadows
+    float light_size = 75.0;
+    float max_sample_size = 250.0; // In pixels
     if (shadow_map < 1.0) {
-        float sample_radius = min((shadow_map * 500.0) / depth, 250.0);
+        float sample_radius = min((shadow_map * light_size) / depth, max_sample_size);
 
         float lit_distance_max = sample_radius;
         float lit_distance = sample_radius;
@@ -62,9 +56,11 @@ void main() {
             ivec2 fib = ivec2(Rotate(fibonacci, angle));
 
             uvec2 sample_pos = uvec2(ivec2(px) + fib);
-            vec2 sample_vec = Unpacku16u16(ReadFramebuffer(sample_pos, 2)) / 65535.0;
-            float sample_depth = depth - sample_vec.x * u.cam.max_depth;
-            float sample_value = sample_vec.y;
+            vec4 sample_layer0 = imageLoad(frame_buffer, ivec3(px + fib, 0));
+            vec4 sample_layer1 = imageLoad(frame_buffer, ivec3(px + fib, 1));
+            float sample_depth = depth - sample_layer0.a * u.cam.max_depth;
+
+            float sample_value = sample_layer1.a;
 
             float sample_dist = length(vec3(fib, sample_depth * 500.0));
             if (sample_value == 1.0) {
@@ -75,28 +71,28 @@ void main() {
 
         lit_distance /= lit_distance_max;
         shadow_map = Sigmoid(lit_distance);
-
-        // shadow_map = 1.0;
     } else {
         shadow_map = 0.0;
     }
 
-    float ambient = 0.5;
+    // Combining diffuse and specular
+    float ambient = 0.35;
     vec3 output_col = colour * mix(diffuse + specular + ambient, ambient, shadow_map);
-    // vec3 output_col = vec3(specular);
+    // vec3 output_col = vec3(shadow_map);
 
-    // vec2 out_dir = st - vec2(0.5, 0.5);
-    // float pwidth = 1.0 / u.resolution.x;
 
-    // // Bad kinda slow blur
-    // vec3 output_col = vec3(0);
-    // int radius = int(length(out_dir) * 40.0);
-    // for (int i = -radius; i <= radius; i++) {
-    //     output_col += ReadPixel(st + normalize(out_dir) * i * pwidth, 0).xyz / (radius + 0.5) / 2.0;
-    // }
+    // Tone mapping
+    // Basic tone mapping
+    // output_col = output_col / (output_col + 1.0);
+    if (u.debug_setting) {
+        // 1 third tone mapping
+        output_col = 0.66 * pow(output_col, vec3(0.624));
+    } else {
+        // ACES Tonemapping
+        output_col = (output_col * (2.51 * output_col + 0.03)) / (output_col * (2.43 * output_col + 0.59) + 0.14);
+    }
 
-    frag_colour = vec4(output_col, 1.0);
-    // frag_colour = ReadPixel(px, 0);
+    frag_colour = vec4(output_col, 0.0);
 }
 
 // vec3 output_col = vec3(0);

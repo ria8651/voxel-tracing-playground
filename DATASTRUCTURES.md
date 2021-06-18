@@ -6,6 +6,5 @@ The octree is made with nodes and leafs. The octree always has the first 8 child
 
 ## Framebuffers
 
-0. Colour in xyz
-1. Normals in xyz
-2. Depth in xy and shadow map in zw
+0. Colour in rgb and depth in a
+1. Normals in rgb and shadow map in a

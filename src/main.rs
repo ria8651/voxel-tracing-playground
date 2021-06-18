@@ -3,9 +3,10 @@ use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::descriptor::PipelineLayoutAbstract;
-use vulkano::device::{Device, DeviceExtensions};
+use vulkano::device::{Device, DeviceExtensions, Queue};
+use vulkano::format::Format;
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass};
-use vulkano::image::{ImageUsage, SwapchainImage};
+use vulkano::image::{Dimensions, ImageUsage, StorageImage, SwapchainImage};
 use vulkano::instance::Instance;
 use vulkano::instance::PhysicalDevice;
 use vulkano::pipeline::viewport::Viewport;
@@ -31,7 +32,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use vecmath::{vec3_add, vec3_cross, vec3_scale};
 
-static NUMBER_OF_SUBDIVISIONS: usize = 5;
+static NUMBER_OF_SUBDIVISIONS: usize = 100000;
 static RENDER_BUFFER_COUNT: u32 = 3;
 const FIBONACHI_LENGTH: usize = 20;
 
@@ -275,11 +276,12 @@ fn main() {
         reference: None,
     };
 
-    let (mut framebuffers, mut unprocessed_image) = size_dependent_setup(
+    let (mut framebuffers, mut graphics_image) = size_dependent_setup(
         &output_images,
         render_pass.clone(),
         &mut dynamic_state,
-        &device,
+        device.clone(),
+        queue.clone(),
     );
     // #endregion
 
@@ -295,6 +297,7 @@ fn main() {
 
     let mut normal_bias = 0.000001;
     let mut speed = 0.02;
+    let mut debug_setting = false;
 
     event_loop.run(move |event, _, control_flow| match event {
         winit::event::Event::DeviceEvent { event, .. } => match event {
@@ -325,15 +328,16 @@ fn main() {
 
                     swapchain = new_swapchain;
 
-                    let (new_framebuffers, new_unprocessed_image) = size_dependent_setup(
+                    let (new_framebuffers, new_graphics_image) = size_dependent_setup(
                         &new_images,
                         render_pass.clone(),
                         &mut dynamic_state,
-                        &device,
+                        device.clone(),
+                        queue.clone(),
                     );
 
                     framebuffers = new_framebuffers;
-                    unprocessed_image = new_unprocessed_image;
+                    graphics_image = new_graphics_image;
 
                     recreate_swapchain = false;
                 }
@@ -391,6 +395,10 @@ fn main() {
                     normal_bias -= 0.000001;
                 }
 
+                if input.key_pressed(VirtualKeyCode::P) {
+                    debug_setting = !debug_setting;
+                }
+
                 if input.key_pressed(VirtualKeyCode::I) {
                     println!(
                         "pos: ({}, {}, {}), rot: ({}, {})",
@@ -408,7 +416,7 @@ fn main() {
                 let graphics_cam = graphics_fs::ty::Camera {
                     pos: cam_pos,
                     rot: cam_rot,
-                    fov: 1.5,
+                    fov: 2.0,
                     max_depth: 10.0,
                     _dummy0: [0, 0, 0, 0],
                 };
@@ -416,7 +424,7 @@ fn main() {
                 let post_cam = post_fs::ty::Camera {
                     pos: cam_pos,
                     rot: cam_rot,
-                    fov: 1.5,
+                    fov: 2.0,
                     max_depth: 10.0,
                     _dummy0: [0, 0, 0, 0],
                 };
@@ -436,7 +444,7 @@ fn main() {
                     )
                     .add_buffer(graphics_uniform_buffer.next(graphics_uniforms).unwrap())
                     .unwrap()
-                    .add_buffer(unprocessed_image.clone())
+                    .add_image(graphics_image.clone())
                     .unwrap()
                     .add_buffer(data_buffer.clone())
                     .unwrap()
@@ -451,6 +459,7 @@ fn main() {
                     cam: post_cam,
                     light_pos: light_pos,
                     fibonacci_spiral: fibonacci_spiral,
+                    debug_setting: debug_setting as u32,
                     _dummy0: [0, 0, 0, 0],
                 };
                 let post_set = Arc::new(
@@ -459,7 +468,7 @@ fn main() {
                     )
                     .add_buffer(post_uniform_buffer.next(post_uniforms).unwrap())
                     .unwrap()
-                    .add_buffer(unprocessed_image.clone())
+                    .add_image(graphics_image.clone())
                     .unwrap()
                     .build()
                     .unwrap(),
@@ -547,15 +556,16 @@ fn main() {
 }
 
 fn size_dependent_setup(
-    images: &[Arc<SwapchainImage<Window>>],
+    output_images: &[Arc<SwapchainImage<Window>>],
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
     dynamic_state: &mut DynamicState,
-    device: &Arc<Device>,
+    device: Arc<Device>,
+    queue: Arc<Queue>,
 ) -> (
     Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
-    Arc<CpuAccessibleBuffer<[u32]>>,
+    Arc<StorageImage<Format>>,
 ) {
-    let dimensions = images[0].dimensions();
+    let dimensions = output_images[0].dimensions();
 
     let viewport = Viewport {
         origin: [0.0, 0.0],
@@ -564,7 +574,7 @@ fn size_dependent_setup(
     };
     dynamic_state.viewports = Some(vec![viewport]);
 
-    let framebuffers = images
+    let output_framebuffers = output_images
         .iter()
         .map(|image| {
             Arc::new(
@@ -577,12 +587,19 @@ fn size_dependent_setup(
         })
         .collect::<Vec<_>>();
 
-    let length = dimensions[0] * dimensions[1] * RENDER_BUFFER_COUNT;
-    let data = (0..length).map(|n| n);
-    let unprocessed_image =
-        CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, data).unwrap();
+    let graphics_image = StorageImage::new(
+        device.clone(),
+        Dimensions::Dim2dArray {
+            width: dimensions[0],
+            height: dimensions[1],
+            array_layers: RENDER_BUFFER_COUNT,
+        },
+        Format::R16G16B16A16Sfloat,
+        Some(queue.family()),
+    )
+    .unwrap();
 
-    (framebuffers, unprocessed_image)
+    (output_framebuffers, graphics_image)
 }
 
 fn rotate_x(vec: [f32; 3], angle: f32) -> [f32; 3] {
