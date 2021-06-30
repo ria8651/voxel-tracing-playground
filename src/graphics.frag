@@ -11,6 +11,7 @@ layout(set = 0, binding = 0) uniform Uniforms {
     vec3 light_pos;
     float normal_bias;
     uint data_len;
+    bool debug_setting;
 } u;
 
 layout(set = 0, binding = 1, rgba8) uniform writeonly image2DArray frame_buffer;
@@ -116,7 +117,7 @@ Leaf GetLeaf(vec3 pos) {
 
 // Returns true if v inside the octree, returns false otherwise
 bool PointInOctree(vec3 v) {
-    vec3 s = step(vec3(-1), v) - step(vec3(1), v);
+    vec3 s = step(vec3(-1.0), v) - step(vec3(1.0), v);
     return s.x * s.y * s.z != 0.0;
 }
 
@@ -205,8 +206,8 @@ HitInfo OctreeRay(Ray r, int maxSteps) {
 }
 
 void main() {
-    ivec2 px = ivec2(gl_FragCoord.xy);
-    vec2 st = vec2(px) / u.resolution * vec2(1, -1) + vec2(0, 1);
+    ivec2 px = ivec2(gl_FragCoord.x * 2, u.resolution.y) - ivec2(gl_FragCoord.xy);
+    vec2 st = vec2(px) / u.resolution;
     float aspect = u.resolution.y / float(u.resolution.x);
     st = (st - 0.5) * vec2(1, aspect) + 0.5;
 
@@ -222,7 +223,7 @@ void main() {
 
     if (bool(hit.hit)) {
         output_col = hit.colour;
-        depth = clamp(length(hit.pos - u.cam.pos) / u.cam.max_depth, 0, 1);
+        depth = length(hit.pos - ray.pos);
 
         vec3 lightDir = u.light_pos - hit.pos;
         vec3 lightDirNorm = normalize(lightDir);

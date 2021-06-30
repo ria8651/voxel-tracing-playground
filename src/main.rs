@@ -26,11 +26,16 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 use winit_input_helper::WinitInputHelper;
 
+use na::base::Matrix;
+use na::geometry::Rotation3;
+use nalgebra as na;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::sync::Arc;
 use std::time::SystemTime;
-use vecmath::{vec3_add, vec3_cross, vec3_scale};
+
+type Vector3 = na::Vector3<f32>;
+type Matrix4 = na::Matrix4<f32>;
 
 static NUMBER_OF_SUBDIVISIONS: usize = 100000;
 static RENDER_BUFFER_COUNT: u32 = 3;
@@ -238,6 +243,7 @@ fn main() {
     let _ = include_str!("shader.vert");
     let _ = include_str!("graphics.frag");
     let _ = include_str!("post.frag");
+    let _ = include_str!("common.glsl");
 
     let vs = vs::Shader::load(device.clone()).unwrap();
     let graphics_fs = graphics_fs::Shader::load(device.clone()).unwrap();
@@ -290,10 +296,15 @@ fn main() {
 
     let time = SystemTime::now();
     let mut last_time = time.elapsed().unwrap();
-    let mut cam_pos = [1.0, 1.0, 1.0];
-    let mut cam_rot = [-2.19911, 0.785398];
 
-    let light_pos = [1.2, 1.5, -1.9];
+    let mut cam_pos = Vector3::new(0.0, 0.0, 0.0);
+    let mut cam_target = Vector3::new(0.0, 0.0, 1.0);
+    let mut cam_right = Vector3::new (1.0, 0.0, 0.0);
+
+    let mut camera_matrix = Matrix4::default();
+    let mut camera_matrix_last = Matrix4::default();
+
+    let light_pos = Vector3::new(1.2, 1.5, -1.9);
 
     let mut normal_bias = 0.000001;
     let mut speed = 0.02;
@@ -303,8 +314,14 @@ fn main() {
         winit::event::Event::DeviceEvent { event, .. } => match event {
             DeviceEvent::MouseMotion { delta } => {
                 let sensitivity = 0.005;
-                cam_rot[0] += -delta.1 as f32 * sensitivity;
-                cam_rot[1] += delta.0 as f32 * sensitivity;
+                let right = delta.0 as f32 * sensitivity;
+                let up = delta.1 as f32 * sensitivity;
+
+                let right_rotation_matirx = Rotation3::new(Vector3::new(0.0, 1.0, 0.0) * right);
+                cam_right = right_rotation_matirx * cam_right;
+
+                let up_rotation_matirx = Rotation3::new(cam_right * up);
+                cam_target = up_rotation_matirx * right_rotation_matirx * cam_target;
             }
             _ => {}
         },
@@ -347,8 +364,9 @@ fn main() {
                 let fps = (1.0
                     / ((time.elapsed().unwrap() - last_time).as_millis() as f64 / 1000.0))
                     as i32;
-                println!("{:?}", fps);
                 last_time = time.elapsed().unwrap();
+
+                // println!("{:?}", fps);
 
                 if input.key_pressed(VirtualKeyCode::Escape) {
                     surface.window().set_cursor_grab(false).unwrap();
@@ -360,7 +378,7 @@ fn main() {
                     surface.window().set_cursor_visible(false);
                 }
 
-                let dimensions = surface.window().inner_size().into();
+                let dimensions: [u32; 2] = surface.window().inner_size().into();
                 let time = time.elapsed().unwrap().as_millis() as f32;
 
                 let forward = input.key_held(VirtualKeyCode::W) as i32
@@ -369,23 +387,37 @@ fn main() {
                     - input.key_held(VirtualKeyCode::A) as i32;
                 let up = input.key_held(VirtualKeyCode::Space) as i32 - input.held_shift() as i32;
 
-                let mut forward_vec = [0.0, 1.0, 0.0];
-                forward_vec = rotate_x(forward_vec, cam_rot[0]);
-                forward_vec = rotate_y(forward_vec, cam_rot[1]);
+                let forward_vec = cam_target;
+                let right_vec = cam_right;
+                let up_vec = Vector3::cross(&forward_vec, &right_vec);
 
-                let mut right_vec = [-1.0, 0.0, 0.0];
-                right_vec = rotate_y(right_vec, cam_rot[1]);
+                speed *= 2.0 / (1.0 + 2.0_f32.powf(0.2 * input.scroll_diff())); // Sigmoid
 
-                let up_vec = vec3_cross(forward_vec, right_vec);
+                cam_pos += forward_vec * forward as f32 * speed
+                    + right_vec * right as f32 * speed
+                    + up_vec * up as f32 * speed;
 
-                speed -= input.scroll_diff() / 100.0;
-                if speed <= 0.0 {
-                    speed = 0.0;
+                if !debug_setting {
+                    camera_matrix_last = camera_matrix;
                 }
 
-                cam_pos = vec3_add(cam_pos, vec3_scale(forward_vec, forward as f32 * speed));
-                cam_pos = vec3_add(cam_pos, vec3_scale(right_vec, right as f32 * speed));
-                cam_pos = vec3_add(cam_pos, vec3_scale(up_vec, up as f32 * speed));
+                let mut view_matrix = Matrix::face_towards(
+                    &cam_pos.into(),
+                    &(cam_pos + cam_target).into(),
+                    &Vector3::new(0.0, 1.0, 0.0),
+                );
+
+                // let aspect = dimensions[0] as f32 / dimensions[1] as f32;
+                // let projection_matrix = create_projection_matrix(2.0, aspect, 0.01, 1.0);
+                // let mut projection_matrix = Matrix4::new(
+                //     0.638114, 0.0, 0.0, 0.0, 0.0, 0.638114, 0.0, 0.0, 0.0, 0.0, -1.0002, -1.0, 0.0,
+                //     0.0, -0.20002, 0.0,
+                // );
+
+                // view_matrix.try_inverse_mut();
+                // projection_matrix.try_inverse_mut();
+
+                camera_matrix = view_matrix;
 
                 if input.key_pressed(VirtualKeyCode::Up) {
                     normal_bias += 0.000001;
@@ -401,8 +433,16 @@ fn main() {
 
                 if input.key_pressed(VirtualKeyCode::I) {
                     println!(
-                        "pos: ({}, {}, {}), rot: ({}, {})",
-                        cam_pos[0], cam_pos[1], cam_pos[2], cam_rot[0], cam_rot[1]
+                        "pos: ({:.1}, {:.1}, {:.1}), forward: ({:.1}, {:.1}, {:.1}), right: ({:.1}, {:.1}, {:.1})",
+                        cam_pos.x,
+                        cam_pos.y,
+                        cam_pos.z,
+                        cam_target.x,
+                        cam_target.y,
+                        cam_target.z,
+                        cam_right.x,
+                        cam_right.y,
+                        cam_right.z
                     );
                 }
 
@@ -414,19 +454,17 @@ fn main() {
 
                 // #region Create Buffers
                 let graphics_cam = graphics_fs::ty::Camera {
-                    pos: cam_pos,
-                    rot: cam_rot,
+                    camera_matrix: camera_matrix.into(),
+                    camera_matrix_last: camera_matrix_last.into(),
                     fov: 2.0,
                     max_depth: 10.0,
-                    _dummy0: [0, 0, 0, 0],
                 };
 
                 let post_cam = post_fs::ty::Camera {
-                    pos: cam_pos,
-                    rot: cam_rot,
+                    camera_matrix: camera_matrix.into(),
+                    camera_matrix_last: camera_matrix_last.into(),
                     fov: 2.0,
                     max_depth: 10.0,
-                    _dummy0: [0, 0, 0, 0],
                 };
 
                 let graphics_uniforms = graphics_fs::ty::Uniforms {
@@ -434,9 +472,11 @@ fn main() {
                     render_buffer_count: RENDER_BUFFER_COUNT,
                     time: time,
                     cam: graphics_cam,
-                    light_pos: light_pos,
+                    light_pos: light_pos.into(),
                     normal_bias: normal_bias,
                     data_len: data_len,
+                    debug_setting: debug_setting as u32,
+                    _dummy0: [0, 0, 0, 0, 0, 0, 0, 0],
                 };
                 let graphics_set = Arc::new(
                     PersistentDescriptorSet::start(
@@ -457,10 +497,11 @@ fn main() {
                     render_buffer_count: RENDER_BUFFER_COUNT,
                     time: time,
                     cam: post_cam,
-                    light_pos: light_pos,
+                    light_pos: light_pos.into(),
                     fibonacci_spiral: fibonacci_spiral,
                     debug_setting: debug_setting as u32,
-                    _dummy0: [0, 0, 0, 0],
+                    _dummy0: [0, 0, 0, 0, 0, 0, 0, 0],
+                    _dummy1: [0, 0, 0, 0],
                 };
                 let post_set = Arc::new(
                     PersistentDescriptorSet::start(
@@ -555,6 +596,46 @@ fn main() {
     });
 }
 
+// fn create_projection_matrix(d: f32) -> Matrix4 {
+fn create_projection_matrix(fov: f32, aspect: f32, near: f32, far: f32) -> Matrix4 {
+    let scale = (fov * 0.5).tan() * near;
+    let r = aspect * scale;
+    let t = scale;
+
+    // glm::perspective():
+    // 0.638114 0          0        0
+    // 0        0.638114   0        0
+    // 0        0          -1.0002  -1
+    // 0        0          -0.20002 0
+
+    // [0.6420926, 0,      0,       0],
+    // [0,         0.6420926,       1, 0],
+    // [0,         0,      -1.0002, -0.020002],
+    // [0,         0,      -1,      0],
+
+    Matrix4::new(
+        near / r,
+        0.0,
+        0.0,
+        0.0,
+        //
+        0.0,
+        near / t,
+        0.0,
+        0.0,
+        //
+        0.0,
+        0.0,
+        -(far + near) / (far - near),
+        -2.0 * far * near / (far - near),
+        //
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+    )
+}
+
 fn size_dependent_setup(
     output_images: &[Arc<SwapchainImage<Window>>],
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
@@ -600,22 +681,6 @@ fn size_dependent_setup(
     .unwrap();
 
     (output_framebuffers, graphics_image)
-}
-
-fn rotate_x(vec: [f32; 3], angle: f32) -> [f32; 3] {
-    [
-        vec[0],
-        vec[1] * angle.cos() - vec[2] * angle.sin(),
-        vec[1] * angle.sin() + vec[2] * angle.cos(),
-    ]
-}
-
-fn rotate_y(vec: [f32; 3], angle: f32) -> [f32; 3] {
-    [
-        vec[0] * angle.cos() + vec[2] * angle.sin(),
-        vec[1],
-        -vec[0] * angle.sin() + vec[2] * angle.cos(),
-    ]
 }
 
 mod vs {

@@ -1,6 +1,6 @@
 struct Camera {
-    vec3 pos;
-    vec2 rot;
+    mat4 camera_matrix;
+    mat4 camera_matrix_last;
     float fov;
     float max_depth;
 };
@@ -79,13 +79,14 @@ struct Ray {
 Ray GetCameraRay(Camera cam, vec2 st) {
     vec2 scaled_st = (st - vec2(0.5)) * cam.fov;
 
-    vec3 rpos = cam.pos;
-    vec3 rdir = vec3(-scaled_st.x, 1, scaled_st.y);
-    rdir = RotateX(rdir, cam.rot.x);
-    rdir = RotateY(rdir, cam.rot.y);
-    rdir = normalize(rdir);
+    vec4 rpos = vec4(scaled_st, 0, 1);
+    vec4 rdir = vec4(scaled_st, 1, 1);
+    rpos = cam.camera_matrix * rpos;
+    rdir = cam.camera_matrix * rdir;
     
-    return Ray(rpos, rdir);
+    rdir = normalize(rdir - rpos);
+    
+    return Ray(rpos.xyz, rdir.xyz);
 }
 
 float Sigmoid(float x) {
@@ -95,4 +96,8 @@ float Sigmoid(float x) {
 
 float Rand(float x) {
     return fract(sin(x) * 43758.5453);
+}
+
+float Rand(vec2 x) {
+    return fract(sin(dot(x.xy, vec2(12.9898,78.233))) * 43758.5453);
 }
