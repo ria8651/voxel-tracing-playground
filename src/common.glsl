@@ -79,14 +79,14 @@ struct Ray {
 Ray GetCameraRay(Camera cam, vec2 st) {
     vec2 scaled_st = (st - vec2(0.5)) * cam.fov;
 
-    vec4 rpos = vec4(scaled_st, 0, 1);
-    vec4 rdir = vec4(scaled_st, 1, 1);
-    rpos = cam.camera_matrix * rpos;
-    rdir = cam.camera_matrix * rdir;
+    vec4 front = cam.camera_matrix * vec4(scaled_st, 0, 1);
+    vec4 back = cam.camera_matrix * vec4(scaled_st, 1, 1);
+    vec3 rpos = front.xyz / front.w;
+    vec3 rdir = back.xyz / back.w;
     
     rdir = normalize(rdir - rpos);
     
-    return Ray(rpos.xyz, rdir.xyz);
+    return Ray(rpos, rdir);
 }
 
 float Sigmoid(float x) {

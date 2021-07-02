@@ -299,7 +299,7 @@ fn main() {
 
     let mut cam_pos = Vector3::new(0.0, 0.0, 0.0);
     let mut cam_target = Vector3::new(0.0, 0.0, 1.0);
-    let mut cam_right = Vector3::new (1.0, 0.0, 0.0);
+    let mut cam_right = Vector3::new(1.0, 0.0, 0.0);
 
     let mut camera_matrix = Matrix4::default();
     let mut camera_matrix_last = Matrix4::default();
@@ -401,23 +401,17 @@ fn main() {
                     camera_matrix_last = camera_matrix;
                 }
 
-                let mut view_matrix = Matrix::face_towards(
+                let view_matrix = Matrix::face_towards(
                     &cam_pos.into(),
                     &(cam_pos + cam_target).into(),
                     &Vector3::new(0.0, 1.0, 0.0),
                 );
 
-                // let aspect = dimensions[0] as f32 / dimensions[1] as f32;
-                // let projection_matrix = create_projection_matrix(2.0, aspect, 0.01, 1.0);
-                // let mut projection_matrix = Matrix4::new(
-                //     0.638114, 0.0, 0.0, 0.0, 0.0, 0.638114, 0.0, 0.0, 0.0, 0.0, -1.0002, -1.0, 0.0,
-                //     0.0, -0.20002, 0.0,
-                // );
+                let aspect = dimensions[0] as f32 / dimensions[1] as f32;
+                let projection_matrix = create_projection_matrix(2.0, aspect, 0.01, 1.0);
 
-                // view_matrix.try_inverse_mut();
-                // projection_matrix.try_inverse_mut();
-
-                camera_matrix = view_matrix;
+                camera_matrix = projection_matrix * view_matrix;
+                camera_matrix.try_inverse_mut();
 
                 if input.key_pressed(VirtualKeyCode::Up) {
                     normal_bias += 0.000001;
@@ -608,10 +602,11 @@ fn create_projection_matrix(fov: f32, aspect: f32, near: f32, far: f32) -> Matri
     // 0        0          -1.0002  -1
     // 0        0          -0.20002 0
 
-    // [0.6420926, 0,      0,       0],
-    // [0,         0.6420926,       1, 0],
-    // [0,         0,      -1.0002, -0.020002],
-    // [0,         0,      -1,      0],
+    // This function
+    // [0.6420926, 0,         0,       0],
+    // [0,         0.6420926, 0,       0],
+    // [0,         0,         -1.0002, -0.020002],
+    // [0,         0,         -1,      0],
 
     Matrix4::new(
         near / r,
@@ -634,6 +629,28 @@ fn create_projection_matrix(fov: f32, aspect: f32, near: f32, far: f32) -> Matri
         -1.0,
         0.0,
     )
+
+    // Matrix4::new(
+    //     1.0,
+    //     0.0,
+    //     0.0,
+    //     0.0,
+    //     //
+    //     0.0,
+    //     1.0,
+    //     0.0,
+    //     0.0,
+    //     //
+    //     0.0,
+    //     0.0,
+    //     -1.0,
+    //     0.0,
+    //     //
+    //     0.0,
+    //     0.0,
+    //     -1.0,
+    //     0.0,
+    // )
 }
 
 fn size_dependent_setup(
