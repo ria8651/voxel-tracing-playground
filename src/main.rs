@@ -144,10 +144,12 @@ fn main() {
             .unwrap()
     };
 
-    let graphics_uniform_buffer =
-        CpuBufferPool::<graphics_fs::ty::Uniforms>::new(device.clone(), BufferUsage::all());
-    let post_uniform_buffer =
-        CpuBufferPool::<post_fs::ty::Uniforms>::new(device.clone(), BufferUsage::all());
+    let pass1_uniform_buffer =
+        CpuBufferPool::<pass1::ty::Uniforms>::new(device.clone(), BufferUsage::all());
+    let pass2_uniform_buffer =
+        CpuBufferPool::<pass2::ty::Uniforms>::new(device.clone(), BufferUsage::all());
+    let pass3_uniform_buffer =
+        CpuBufferPool::<pass3::ty::Uniforms>::new(device.clone(), BufferUsage::all());
 
     let data_len;
     let data_buffer = {
@@ -241,33 +243,47 @@ fn main() {
     );
 
     let _ = include_str!("shader.vert");
-    let _ = include_str!("graphics.frag");
-    let _ = include_str!("post.frag");
+    let _ = include_str!("pass1.frag");
+    let _ = include_str!("pass2.frag");
+    let _ = include_str!("pass3.frag");
     let _ = include_str!("common.glsl");
 
     let vs = vs::Shader::load(device.clone()).unwrap();
-    let graphics_fs = graphics_fs::Shader::load(device.clone()).unwrap();
-    let post_fs = post_fs::Shader::load(device.clone()).unwrap();
+    let pass1 = pass1::Shader::load(device.clone()).unwrap();
+    let pass2 = pass2::Shader::load(device.clone()).unwrap();
+    let pass3 = pass3::Shader::load(device.clone()).unwrap();
 
-    let graphics_pipeline = Arc::new(
+    let pass1_pipeline = Arc::new(
         GraphicsPipeline::start()
             .vertex_input_single_buffer::<Vertex>()
             .vertex_shader(vs.main_entry_point(), ())
             .triangle_strip()
             .viewports_dynamic_scissors_irrelevant(1)
-            .fragment_shader(graphics_fs.main_entry_point(), ())
+            .fragment_shader(pass1.main_entry_point(), ())
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .build(device.clone())
             .unwrap(),
     );
 
-    let post_pipeline = Arc::new(
+    let pass2_pipeline = Arc::new(
         GraphicsPipeline::start()
             .vertex_input_single_buffer::<Vertex>()
             .vertex_shader(vs.main_entry_point(), ())
             .triangle_strip()
             .viewports_dynamic_scissors_irrelevant(1)
-            .fragment_shader(post_fs.main_entry_point(), ())
+            .fragment_shader(pass2.main_entry_point(), ())
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            .build(device.clone())
+            .unwrap(),
+    );
+
+    let pass3_pipeline = Arc::new(
+        GraphicsPipeline::start()
+            .vertex_input_single_buffer::<Vertex>()
+            .vertex_shader(vs.main_entry_point(), ())
+            .triangle_strip()
+            .viewports_dynamic_scissors_irrelevant(1)
+            .fragment_shader(pass3.main_entry_point(), ())
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .build(device.clone())
             .unwrap(),
@@ -282,7 +298,7 @@ fn main() {
         reference: None,
     };
 
-    let (mut framebuffers, mut graphics_image) = size_dependent_setup(
+    let (mut framebuffers, mut pass_images) = size_dependent_setup(
         &output_images,
         render_pass.clone(),
         &mut dynamic_state,
@@ -345,7 +361,7 @@ fn main() {
 
                     swapchain = new_swapchain;
 
-                    let (new_framebuffers, new_graphics_image) = size_dependent_setup(
+                    let (new_framebuffers, new_pass_images) = size_dependent_setup(
                         &new_images,
                         render_pass.clone(),
                         &mut dynamic_state,
@@ -354,7 +370,7 @@ fn main() {
                     );
 
                     framebuffers = new_framebuffers;
-                    graphics_image = new_graphics_image;
+                    pass_images = new_pass_images;
 
                     recreate_swapchain = false;
                 }
@@ -447,38 +463,65 @@ fn main() {
                 // #endregion
 
                 // #region Create Buffers
-                let graphics_cam = graphics_fs::ty::Camera {
+                let pass1_cam = pass1::ty::Camera {
                     camera_matrix: camera_matrix.into(),
                     camera_matrix_last: camera_matrix_last.into(),
                     fov: 2.0,
                     max_depth: 10.0,
                 };
 
-                let post_cam = post_fs::ty::Camera {
+                let pass2_cam = pass2::ty::Camera {
                     camera_matrix: camera_matrix.into(),
                     camera_matrix_last: camera_matrix_last.into(),
                     fov: 2.0,
                     max_depth: 10.0,
                 };
 
-                let graphics_uniforms = graphics_fs::ty::Uniforms {
+                let pass3_cam = pass3::ty::Camera {
+                    camera_matrix: camera_matrix.into(),
+                    camera_matrix_last: camera_matrix_last.into(),
+                    fov: 2.0,
+                    max_depth: 10.0,
+                };
+
+                let pass1_uniforms = pass1::ty::Uniforms {
+                    resolution: dimensions,
+                    render_buffer_count: RENDER_BUFFER_COUNT,
+                    cam: pass1_cam,
+                    debug_setting: debug_setting as u32,
+                    _dummy0: [0, 0, 0, 0],
+                    _dummy1: [0, 0, 0, 0, 0, 0, 0, 0],
+                };
+                let pass1_set = Arc::new(
+                    PersistentDescriptorSet::start(
+                        pass1_pipeline.descriptor_set_layout(0).unwrap().clone(),
+                    )
+                    .add_buffer(pass1_uniform_buffer.next(pass1_uniforms).unwrap())
+                    .unwrap()
+                    .add_image(pass_images.clone())
+                    .unwrap()
+                    .build()
+                    .unwrap(),
+                );
+
+                let pass2_uniforms = pass2::ty::Uniforms {
                     resolution: dimensions,
                     render_buffer_count: RENDER_BUFFER_COUNT,
                     time: time,
-                    cam: graphics_cam,
+                    cam: pass2_cam.into(),
                     light_pos: light_pos.into(),
                     normal_bias: normal_bias,
                     data_len: data_len,
                     debug_setting: debug_setting as u32,
                     _dummy0: [0, 0, 0, 0, 0, 0, 0, 0],
                 };
-                let graphics_set = Arc::new(
+                let pass2_set = Arc::new(
                     PersistentDescriptorSet::start(
-                        graphics_pipeline.descriptor_set_layout(0).unwrap().clone(),
+                        pass2_pipeline.descriptor_set_layout(0).unwrap().clone(),
                     )
-                    .add_buffer(graphics_uniform_buffer.next(graphics_uniforms).unwrap())
+                    .add_buffer(pass2_uniform_buffer.next(pass2_uniforms).unwrap())
                     .unwrap()
-                    .add_image(graphics_image.clone())
+                    .add_image(pass_images.clone())
                     .unwrap()
                     .add_buffer(data_buffer.clone())
                     .unwrap()
@@ -486,24 +529,24 @@ fn main() {
                     .unwrap(),
                 );
 
-                let post_uniforms = post_fs::ty::Uniforms {
+                let pass3_uniforms = pass3::ty::Uniforms {
                     resolution: dimensions,
                     render_buffer_count: RENDER_BUFFER_COUNT,
                     time: time,
-                    cam: post_cam,
+                    cam: pass3_cam.into(),
                     light_pos: light_pos.into(),
                     fibonacci_spiral: fibonacci_spiral,
                     debug_setting: debug_setting as u32,
                     _dummy0: [0, 0, 0, 0, 0, 0, 0, 0],
                     _dummy1: [0, 0, 0, 0],
                 };
-                let post_set = Arc::new(
+                let pass3_set = Arc::new(
                     PersistentDescriptorSet::start(
-                        post_pipeline.descriptor_set_layout(0).unwrap().clone(),
+                        pass3_pipeline.descriptor_set_layout(0).unwrap().clone(),
                     )
-                    .add_buffer(post_uniform_buffer.next(post_uniforms).unwrap())
+                    .add_buffer(pass3_uniform_buffer.next(pass3_uniforms).unwrap())
                     .unwrap()
-                    .add_image(graphics_image.clone())
+                    .add_image(pass_images.clone())
                     .unwrap()
                     .build()
                     .unwrap(),
@@ -541,19 +584,28 @@ fn main() {
                     )
                     .unwrap()
                     .draw(
-                        graphics_pipeline.clone(),
+                        pass1_pipeline.clone(),
                         &dynamic_state,
                         vertex_buffer.clone(),
-                        graphics_set,
+                        pass1_set,
                         (),
                         None,
                     )
                     .unwrap()
                     .draw(
-                        post_pipeline.clone(),
+                        pass2_pipeline.clone(),
                         &dynamic_state,
                         vertex_buffer.clone(),
-                        post_set,
+                        pass2_set,
+                        (),
+                        None,
+                    )
+                    .unwrap()
+                    .draw(
+                        pass3_pipeline.clone(),
+                        &dynamic_state,
+                        vertex_buffer.clone(),
+                        pass3_set,
                         (),
                         None,
                     )
@@ -685,7 +737,7 @@ fn size_dependent_setup(
         })
         .collect::<Vec<_>>();
 
-    let graphics_image = StorageImage::new(
+    let pass_images = StorageImage::new(
         device.clone(),
         Dimensions::Dim2dArray {
             width: dimensions[0],
@@ -697,7 +749,7 @@ fn size_dependent_setup(
     )
     .unwrap();
 
-    (output_framebuffers, graphics_image)
+    (output_framebuffers, pass_images)
 }
 
 mod vs {
@@ -707,18 +759,26 @@ mod vs {
     }
 }
 
-mod graphics_fs {
+mod pass1 {
     vulkano_shaders::shader! {
         ty: "fragment",
         include: [ "src" ],
-        path: "src/graphics.frag"
+        path: "src/pass1.frag"
     }
 }
 
-mod post_fs {
+mod pass2 {
     vulkano_shaders::shader! {
         ty: "fragment",
         include: [ "src" ],
-        path: "src/post.frag"
+        path: "src/pass2.frag"
+    }
+}
+
+mod pass3 {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        include: [ "src" ],
+        path: "src/pass3.frag"
     }
 }

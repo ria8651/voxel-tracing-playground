@@ -206,10 +206,8 @@ HitInfo OctreeRay(Ray r, int maxSteps) {
 }
 
 void main() {
-    ivec2 px = ivec2(gl_FragCoord.x * 2, u.resolution.y) - ivec2(gl_FragCoord.xy);
-    vec2 st = vec2(px) / u.resolution;
-    float aspect = u.resolution.y / float(u.resolution.x);
-    st = (st - 0.5) * vec2(1, aspect) + 0.5;
+    ivec2 ss = GetScreenSpace(gl_FragCoord, u.resolution);
+    vec2 cs = GetClipSpace(gl_FragCoord, u.resolution);
 
     vec3 output_col = vec3(0.1255, 0.7373, 0.8471);
     float depth = 1.0;
@@ -217,7 +215,7 @@ void main() {
     float diffuse = 1.0;
     float specular = 0.0;
 
-    Ray ray = GetCameraRay(u.cam, st);
+    Ray ray = GetCameraRay(u.cam, cs);
     HitInfo hit = OctreeRay(ray, 100);
     vec3 normal = hit.normal;
 
@@ -239,8 +237,8 @@ void main() {
         }
     }
 
-    imageStore(frame_buffer, ivec3(px, 0), vec4(output_col, depth));
-    imageStore(frame_buffer, ivec3(px, 1), vec4(normal, shadow_map));
+    imageStore(frame_buffer, ivec3(ss, 0), vec4(output_col, depth));
+    imageStore(frame_buffer, ivec3(ss, 1), vec4(normal, shadow_map));
 
     frag_colour = vec4(1.0, 0.0, 0.0, 1.0);
 }

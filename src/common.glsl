@@ -40,6 +40,18 @@ uvec2 Unpacku16u16(uint p) {
     );
 }
 
+vec2 GetClipSpace(vec4 frag_coord, uvec2 resolution) {
+    vec2 clip_space = frag_coord.xy / resolution * 2.0;
+    clip_space -= 1.0;
+    clip_space *= vec2(1.0, -1.0);
+    return clip_space;
+}
+
+ivec2 GetScreenSpace(vec4 frag_coord, uvec2 resolution) {
+    ivec2 screen_space = ivec2(frag_coord.x * 2, resolution.y) - ivec2(frag_coord.xy);
+    return screen_space;
+}
+
 vec2 Rotate(vec2 vec, float angle) {
     return vec2(
         vec.x * cos(angle) - vec.y * sin(angle), 
@@ -76,11 +88,9 @@ struct Ray {
     vec3 dir;
 };
 
-Ray GetCameraRay(Camera cam, vec2 st) {
-    vec2 scaled_st = (st - vec2(0.5)) * cam.fov;
-
-    vec4 front = cam.camera_matrix * vec4(scaled_st, 0, 1);
-    vec4 back = cam.camera_matrix * vec4(scaled_st, 1, 1);
+Ray GetCameraRay(Camera cam, vec2 cs) {
+    vec4 front = cam.camera_matrix * vec4(cs, 0, 1);
+    vec4 back = cam.camera_matrix * vec4(cs, 1, 1);
     vec3 rpos = front.xyz / front.w;
     vec3 rdir = back.xyz / back.w;
     
