@@ -313,9 +313,9 @@ fn main() {
     let time = SystemTime::now();
     let mut last_time = time.elapsed().unwrap();
 
-    let mut cam_pos = Vector3::new(0.0, 0.0, 0.0);
-    let mut cam_target = Vector3::new(0.0, 0.0, 1.0);
-    let mut cam_right = Vector3::new(1.0, 0.0, 0.0);
+    let mut cam_pos = Vector3::new(1.0, 1.0, 1.0);
+    let mut cam_target = Vector3::new(-1.0, -1.0, -1.0).normalize();
+    let mut cam_right = Vector3::new(0.0, 0.0, 1.0).normalize();
 
     let mut camera_matrix = Matrix4::default();
     let mut camera_matrix_last = Matrix4::default();
@@ -423,11 +423,10 @@ fn main() {
                     &Vector3::new(0.0, 1.0, 0.0),
                 );
 
-                let aspect = dimensions[0] as f32 / dimensions[1] as f32;
-                let projection_matrix = create_projection_matrix(2.0, aspect, 0.01, 1.0);
+                // let aspect = dimensions[0] as f32 / dimensions[1] as f32;
+                // let projection_matrix = create_projection_matrix(2.0, aspect, 0.01, 1.0);
 
-                camera_matrix = projection_matrix * view_matrix;
-                camera_matrix.try_inverse_mut();
+                camera_matrix = view_matrix;
 
                 if input.key_pressed(VirtualKeyCode::Up) {
                     normal_bias += 0.000001;
@@ -463,23 +462,32 @@ fn main() {
                 // #endregion
 
                 // #region Create Buffers
+                let camera_matrix_inverse = camera_matrix.try_inverse().unwrap_or(Matrix4::identity());
+                let camera_matrix_last_inverse = camera_matrix_last.try_inverse().unwrap_or(Matrix4::identity());
+
                 let pass1_cam = pass1::ty::Camera {
-                    camera_matrix: camera_matrix.into(),
-                    camera_matrix_last: camera_matrix_last.into(),
+                    camera: camera_matrix.into(),
+                    camera_last: camera_matrix_last.into(),
+                    camera_inverse: camera_matrix_inverse.into(),
+                    camera_last_inverse: camera_matrix_last_inverse.into(),
                     fov: 2.0,
                     max_depth: 10.0,
                 };
 
                 let pass2_cam = pass2::ty::Camera {
-                    camera_matrix: camera_matrix.into(),
-                    camera_matrix_last: camera_matrix_last.into(),
+                    camera: camera_matrix.into(),
+                    camera_last: camera_matrix_last.into(),
+                    camera_inverse: camera_matrix_inverse.into(),
+                    camera_last_inverse: camera_matrix_last_inverse.into(),
                     fov: 2.0,
                     max_depth: 10.0,
                 };
 
                 let pass3_cam = pass3::ty::Camera {
-                    camera_matrix: camera_matrix.into(),
-                    camera_matrix_last: camera_matrix_last.into(),
+                    camera: camera_matrix.into(),
+                    camera_last: camera_matrix_last.into(),
+                    camera_inverse: camera_matrix_inverse.into(),
+                    camera_last_inverse: camera_matrix_last_inverse.into(),
                     fov: 2.0,
                     max_depth: 10.0,
                 };
@@ -642,23 +650,11 @@ fn main() {
     });
 }
 
-// fn create_projection_matrix(d: f32) -> Matrix4 {
+// https://www.scratchapixel.com/lessons/3d-basic-rendering/perspective-and-orthographic-projection-matrix/building-basic-perspective-projection-matrix
 fn create_projection_matrix(fov: f32, aspect: f32, near: f32, far: f32) -> Matrix4 {
     let scale = (fov * 0.5).tan() * near;
     let r = aspect * scale;
     let t = scale;
-
-    // glm::perspective():
-    // 0.638114 0          0        0
-    // 0        0.638114   0        0
-    // 0        0          -1.0002  -1
-    // 0        0          -0.20002 0
-
-    // This function
-    // [0.6420926, 0,         0,       0],
-    // [0,         0.6420926, 0,       0],
-    // [0,         0,         -1.0002, -0.020002],
-    // [0,         0,         -1,      0],
 
     Matrix4::new(
         near / r,
@@ -681,28 +677,6 @@ fn create_projection_matrix(fov: f32, aspect: f32, near: f32, far: f32) -> Matri
         -1.0,
         0.0,
     )
-
-    // Matrix4::new(
-    //     1.0,
-    //     0.0,
-    //     0.0,
-    //     0.0,
-    //     //
-    //     0.0,
-    //     1.0,
-    //     0.0,
-    //     0.0,
-    //     //
-    //     0.0,
-    //     0.0,
-    //     -1.0,
-    //     0.0,
-    //     //
-    //     0.0,
-    //     0.0,
-    //     -1.0,
-    //     0.0,
-    // )
 }
 
 fn size_dependent_setup(

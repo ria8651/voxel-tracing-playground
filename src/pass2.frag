@@ -206,39 +206,41 @@ HitInfo OctreeRay(Ray r, int maxSteps) {
 }
 
 void main() {
-    ivec2 ss = GetScreenSpace(gl_FragCoord, u.resolution);
-    vec2 cs = GetClipSpace(gl_FragCoord, u.resolution);
+    if (!u.debug_setting) {
+        ivec2 ss = GetScreenSpace(gl_FragCoord, u.resolution);
+        vec2 cs = GetClipSpace(gl_FragCoord, u.resolution);
 
-    vec3 output_col = vec3(0.1255, 0.7373, 0.8471);
-    float depth = 1.0;
-    float shadow_map = 1.0;
-    float diffuse = 1.0;
-    float specular = 0.0;
+        vec3 output_col = vec3(0.1255, 0.7373, 0.8471);
+        float depth = 1000000000000000.0;
+        float shadow_map = 1.0;
+        float diffuse = 1.0;
+        float specular = 0.0;
 
-    Ray ray = GetCameraRay(u.cam, cs);
-    HitInfo hit = OctreeRay(ray, 100);
-    vec3 normal = hit.normal;
+        Ray ray = GetCameraRay(u.cam, cs);
+        HitInfo hit = OctreeRay(ray, 100);
+        vec3 normal = hit.normal;
 
-    if (bool(hit.hit)) {
-        output_col = hit.colour;
-        depth = length(hit.pos - ray.pos);
+        if (bool(hit.hit)) {
+            output_col = hit.colour;
+            depth = length(hit.pos - ray.pos);
 
-        vec3 lightDir = u.light_pos - hit.pos;
-        vec3 lightDirNorm = normalize(lightDir);
+            vec3 lightDir = u.light_pos - hit.pos;
+            vec3 lightDirNorm = normalize(lightDir);
 
-        Ray shadow_ray = Ray(hit.pos + hit.normal * u.normal_bias, lightDirNorm);
-        HitInfo shadow = OctreeRay(shadow_ray, 25);
-        if (bool(shadow.hit)) {
-            float d_light = length(lightDir);
-            float d_occluder = length(hit.pos - shadow.pos);
-            shadow_map = d_occluder / d_light;
-        } else {
-            shadow_map = 1.0;
+            Ray shadow_ray = Ray(hit.pos + hit.normal * u.normal_bias, lightDirNorm);
+            HitInfo shadow = OctreeRay(shadow_ray, 25);
+            if (bool(shadow.hit)) {
+                float d_light = length(lightDir);
+                float d_occluder = length(hit.pos - shadow.pos);
+                shadow_map = d_occluder / d_light;
+            } else {
+                shadow_map = 1.0;
+            }
         }
-    }
 
-    imageStore(frame_buffer, ivec3(ss, 0), vec4(output_col, depth));
-    imageStore(frame_buffer, ivec3(ss, 1), vec4(normal, shadow_map));
+        imageStore(frame_buffer, ivec3(ss, 0), vec4(output_col, depth));
+        imageStore(frame_buffer, ivec3(ss, 1), vec4(normal, shadow_map));
+    }
 
     frag_colour = vec4(1.0, 0.0, 0.0, 1.0);
 }

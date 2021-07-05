@@ -1,6 +1,8 @@
 struct Camera {
-    mat4 camera_matrix;
-    mat4 camera_matrix_last;
+    mat4 camera;
+    mat4 camera_last;
+    mat4 camera_inverse;
+    mat4 camera_last_inverse;
     float fov;
     float max_depth;
 };
@@ -89,10 +91,10 @@ struct Ray {
 };
 
 Ray GetCameraRay(Camera cam, vec2 cs) {
-    vec4 front = cam.camera_matrix * vec4(cs, 0, 1);
-    vec4 back = cam.camera_matrix * vec4(cs, 1, 1);
-    vec3 rpos = front.xyz / front.w;
-    vec3 rdir = back.xyz / back.w;
+    vec4 back = cam.camera_inverse * vec4(0, 0, 0, 1); // Hard coded scaling xy by z
+    vec4 front = cam.camera_inverse * vec4(cs, 1, 1); // Hard coded scaling xy by z
+    vec3 rpos = vec3(back.xyz / back.w); // Not nececeary as w is always one
+    vec3 rdir = vec3(front.xyz / front.w); // Not nececeary as w is always one
     
     rdir = normalize(rdir - rpos);
     

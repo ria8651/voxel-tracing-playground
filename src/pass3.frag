@@ -13,7 +13,7 @@ layout(set = 0, binding = 0) uniform Uniforms {
     bool debug_setting;
 } u;
 
-layout(set = 0, binding = 1, rgba16f) uniform readonly image2DArray frame_buffer;
+layout(set = 0, binding = 1, rgba16f) uniform image2DArray frame_buffer;
 
 const float pi = 3.1415926538;
 
@@ -55,36 +55,20 @@ float SoftShadow(ivec2 ss, float light_size, float max_sample_size) {
     return shadow_map;
 }
 
-vec3 ScreenToCam(vec2 cs, float depth) {
-    Ray screen_ray = GetCameraRay(u.cam, cs);
-    return screen_ray.dir * depth;
-}
-
-vec3 CamToScreen(vec3 pos) {
-    return pos;
-}
-
 void main() {
     ivec2 ss = GetScreenSpace(gl_FragCoord, u.resolution);
     vec2 cs = GetClipSpace(gl_FragCoord, u.resolution);
 
     vec4 layer0 = imageLoad(frame_buffer, ivec3(ss, 0));
     vec4 layer1 = imageLoad(frame_buffer, ivec3(ss, 1));
+    vec4 layer2 = imageLoad(frame_buffer, ivec3(ss, 2));
+
+    imageStore(frame_buffer, ivec3(ss, 2), vec4(1.0, 0.0, 0.0, 1.0));
 
     vec3 colour = layer0.rgb;
     float depth = layer0.a;
     vec3 normal = layer1.rgb;
     float shadow_map = SoftShadow(ss, 75.0, 150.0);
-
-    // vec3 output_col = colour;
-    // vec3 camera_space = ScreenToCam(cs, depth);
-    // camera_space = RotateX(camera_space, u.cam.rot_diff.x);
-    // camera_space = RotateY(camera_space, u.cam.rot_diff.y);
-    // vec2 scaled_st = cs / u.cam.fov;
-    // ivec2 projected_pos = ivec2((scaled_st + tan(u.cam.rot_diff.yx + atan(scaled_st))) * u.resolution);
-    // ivec2 projected_pos = ivec2(ss + u.cam.rot_diff.yx * u.cam.fov * u.resolution * vec2(1, -1));
-
-    // output_col = imageLoad(frame_buffer, ivec3(ss, 0)).rgb;
 
     // Lighting
     // https://learnopengl.com/Lighting/Basic-Lighting
@@ -113,7 +97,11 @@ void main() {
     // ACES Tonemapping
     output_col = (output_col * (2.51 * output_col + 0.03)) / (output_col * (2.43 * output_col + 0.59) + 0.14);
 
-    frag_colour = vec4(output_col, 1.0);
+    if (u.debug_setting) {
+        frag_colour = vec4(layer2.xyz, 1.0);
+    } else {
+        frag_colour = vec4(output_col, 1.0);
+    }
 }
 
 // vec3 output_col = vec3(0);
