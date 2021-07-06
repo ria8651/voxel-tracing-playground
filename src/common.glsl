@@ -90,9 +90,9 @@ struct Ray {
     vec3 dir;
 };
 
-Ray GetCameraRay(Camera cam, vec2 cs) {
-    vec4 back = cam.camera_inverse * vec4(0, 0, 0, 1); // Hard coded scaling xy by z
-    vec4 front = cam.camera_inverse * vec4(cs, 1, 1); // Hard coded scaling xy by z
+Ray GetCameraRay(mat4 camera_inverse, vec2 cs) {
+    vec4 back = camera_inverse * vec4(0, 0, 0, 1); // Hard coded scaling xy by z
+    vec4 front = camera_inverse * vec4(cs, 1, 1); // Hard coded scaling xy by z
     vec3 rpos = vec3(back.xyz / back.w); // Not nececeary as w is always one
     vec3 rdir = vec3(front.xyz / front.w); // Not nececeary as w is always one
     

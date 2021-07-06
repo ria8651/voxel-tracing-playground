@@ -13,13 +13,14 @@ layout(set = 0, binding = 0) uniform Uniforms {
 layout(set = 0, binding = 1, rgba8) uniform image2DArray frame_buffer;
 
 vec3 ScreenToWorld(vec2 cs, float depth) {
-    vec4 pos = u.cam.camera_last_inverse * vec4(cs * depth, depth, 1);
+    Ray r = GetCameraRay(u.cam.camera_last_inverse, cs);
+    vec4 pos = vec4(r.pos + r.dir * depth, 1);
     return pos.xyz / pos.w;
 }
 
 vec3 WorldToScreen(vec3 pos) {
     vec4 cs = u.cam.camera * vec4(pos, 1);
-    cs = vec4(cs.xy / cs.z, cs.zw);
+    cs = vec4(cs.xy / cs.z, cs.z, cs.w);
     return cs.xyz / cs.w;
 }
 

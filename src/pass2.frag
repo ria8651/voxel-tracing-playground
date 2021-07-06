@@ -216,7 +216,7 @@ void main() {
         float diffuse = 1.0;
         float specular = 0.0;
 
-        Ray ray = GetCameraRay(u.cam, cs);
+        Ray ray = GetCameraRay(u.cam.camera_inverse, cs);
         HitInfo hit = OctreeRay(ray, 100);
         vec3 normal = hit.normal;
 

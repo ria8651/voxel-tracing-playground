@@ -72,7 +72,7 @@ void main() {
 
     // Lighting
     // https://learnopengl.com/Lighting/Basic-Lighting
-    Ray ray = GetCameraRay(u.cam, cs);
+    Ray ray = GetCameraRay(u.cam.camera_inverse, cs);
     vec3 pos = ray.pos + ray.dir * depth;
 
     vec3 lightDir = normalize(u.light_pos - pos);
