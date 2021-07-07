@@ -211,7 +211,7 @@ void main() {
         vec2 cs = GetClipSpace(gl_FragCoord, u.resolution);
 
         vec3 output_col = vec3(0.1255, 0.7373, 0.8471);
-        float depth = 1000000000000000.0;
+        float depth = 10000.0;
         float shadow_map = 1.0;
         float diffuse = 1.0;
         float specular = 0.0;

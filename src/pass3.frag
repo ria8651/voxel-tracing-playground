@@ -63,7 +63,7 @@ void main() {
     vec4 layer1 = imageLoad(frame_buffer, ivec3(ss, 1));
     vec4 layer2 = imageLoad(frame_buffer, ivec3(ss, 2));
 
-    imageStore(frame_buffer, ivec3(ss, 2), vec4(1.0, 0.0, 0.0, 1.0));
+    imageStore(frame_buffer, ivec3(ss, 2), vec4(1.0, 0.0, 0.0, 100000.0));
 
     vec3 colour = layer0.rgb;
     float depth = layer0.a;

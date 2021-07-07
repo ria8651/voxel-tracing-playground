@@ -29,17 +29,17 @@ void main() {
         ivec2 ss = GetScreenSpace(gl_FragCoord, u.resolution);
         vec2 cs = GetClipSpace(gl_FragCoord, u.resolution);
 
-        vec4 layer0 = imageLoad(frame_buffer, ivec3(ss, 0));
+        vec4 last_frame = imageLoad(frame_buffer, ivec3(ss, 0));
 
-        vec3 colour = layer0.rgb;
-        float depth = layer0.a;
+        vec3 old_pixel_pos = ScreenToWorld(cs, last_frame.w);
+        vec3 reprojected_pos = WorldToScreen(old_pixel_pos);
 
-        vec3 pos = ScreenToWorld(cs, depth);
-        vec3 new_cs = WorldToScreen(pos);
+        ivec2 pos_on_current_frame = ivec2(((reprojected_pos.xy + 1.0) / 2.0) * u.resolution);
 
-        ivec2 new_ss = ivec2(((new_cs.xy + 1.0) / 2.0) * u.resolution);
-
-        imageStore(frame_buffer, ivec3(new_ss, 2), vec4(colour, new_cs.z));
+        vec4 current = imageLoad(frame_buffer, ivec3(pos_on_current_frame, 2));
+        if (last_frame.w < current.w) {
+            imageStore(frame_buffer, ivec3(pos_on_current_frame, 2), vec4(last_frame));
+        }
     }
 
     frag_colour = vec4(1.0, 0.0, 0.0, 1.0);
