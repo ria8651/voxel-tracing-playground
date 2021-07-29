@@ -10,15 +10,32 @@ layout(set = 0, binding = 0) uniform Uniforms {
     Camera cam;
     vec3 light_pos;
     float normal_bias;
-    uint data_len;
     bool debug_setting;
 } u;
 
 layout(set = 0, binding = 1, rgba8) uniform writeonly image2DArray frame_buffer;
 
-layout(set = 0, binding = 2) buffer Data {
+layout(set = 0, binding = 2) buffer NodeBuffer {
     uvec4 data[];
-} d;
+} node_buffer;
+
+layout(set = 0, binding = 3) buffer VoxelBuffer {
+    uvec4 data[];
+} voxel_buffer;
+
+// Only for debuging - shader_debug
+// layout(set = 0, binding = 4, r32f) uniform image2D debug_image;
+
+uvec2 GetNode(uint index) {
+    uint remainder = (index % 2) * 2;
+    uint child_mask = node_buffer.data[index / 2][remainder + 1];
+    uint child_pointer = node_buffer.data[index / 2][remainder];
+    return uvec2(child_mask, child_pointer);
+}
+
+uint GetVoxel(uint index) {
+    return voxel_buffer.data[index / 4][index % 4];
+}
 
 bool RayBoxIntersect(Ray r, vec3 vmin, vec3 vmax) {
     vec3 bounds[2] = vec3[2](vmin, vmax);
@@ -74,43 +91,53 @@ BoxDist RayBoxDist(Ray r, vec3 vmin, vec3 vmax) {
     return BoxDist(1, t[7]);
 }
 
-uint GetData(uint index) {
-    uint remainder = index % 4;
-    index /= 4;
-    return d.data[index][remainder];
+uint CountSetBits(uint n) {
+    uint count = 0;
+    while (n > 0) {
+        n &= (n - 1);
+        count++;
+    }
+    return count;
 }
 
-struct Leaf {
-    uint i;
+struct Voxel {
+    uint exisits;
+    uint value;
     uint depth;
     vec3 pos;
 };
 
 // Returns leaf containing position
-Leaf GetLeaf(vec3 pos) {
-    uint o = 0;
-    vec3 npos = vec3(0);
-    int depth = 0;
-    while (true) {
-        depth++;
+Voxel FindVoxel(vec3 pos) {
+    uint node_index = 0;
+    vec3 node_pos = vec3(0);
+    for (int depth = 1; depth < 100; depth++) {
+        uvec2 node = GetNode(node_index);
+        uint child_mask = node.x;
+        uint child_pointer = node.y;
 
-        uint index = 0;
-        uint x = uint(pos.x > npos.x);
-        uint y = uint(pos.y > npos.y);
-        uint z = uint(pos.z > npos.z);
-        index += x * 4;
-        index += y * 2;
-        index += z;
-        
-        npos += (vec3(x, y, z) * 2 - 1) / pow(2, depth);
+        uint x = uint(pos.x > node_pos.x);
+        uint y = uint(pos.y > node_pos.y);
+        uint z = uint(pos.z > node_pos.z);
+        uint child_index = x * 4 + y * 2 + z;
 
-        uint i = GetData(o + index);
-        uvec2 node = Unpacku8u24(i);
+        node_pos += (vec3(x, y, z) * 2 - 1) / pow(2, depth);
 
-        if (node.x == 0) {
-            o = int(node.y);
+        // Voxel
+        if (child_pointer >= 2147483648) {
+            uint voxel = GetVoxel(node_index - 2147483648);
+            return Voxel(1, voxel, depth, node_pos);
+        }
+
+        // Node
+        uint bit = (child_mask >> child_index) & 1;
+        if (bool(bit)) {
+            uint mask = uint(pow(2, child_index)) - 1;
+            uint offset = CountSetBits(child_mask & mask);
+            node_index = child_pointer + offset;
+            // return Voxel(0, 1000000000, depth, node_pos);
         } else {
-            return Leaf(i, depth, npos);
+            return Voxel(0, 30000, depth, node_pos);
         }
     }
 }
@@ -152,17 +179,16 @@ HitInfo OctreeRay(Ray r, int maxSteps) {
     vec3 normal = trunc(r.pos * (1 + u.normal_bias));
     vec3 colour = vec3(0);
     while (true) {
-        Leaf leaf = GetLeaf(pos + -normal * u.normal_bias);
-        uvec2 node = Unpacku8u24(leaf.i);
+        Voxel voxel = FindVoxel(pos + -normal * u.normal_bias);
 
-        if (node.x == 2) {
+        if (bool(voxel.exisits)) {
+            colour = Unpacku8(voxel.value).rgb / 255.0;
             // colour = vec3(steps / float(maxSteps));
-            colour = Unpacku8(leaf.i).yzw / 255.0;
             break;
         }
         
-        float size = 1.0 / pow(2, leaf.depth - 1);
-        vec3 tMax = (leaf.pos - pos + rSign * size / 2.0) / r.dir;
+        float size = 1.0 / pow(2, voxel.depth - 1);
+        vec3 tMax = (voxel.pos - pos + rSign * size / 2.0) / r.dir;
         // tCurrent += min(min(tMax.x, tMax.y), tMax.z);
 
         // Go to next intersection
@@ -237,9 +263,20 @@ void main() {
                 shadow_map = 1.0;
             }
         }
-
+        
         imageStore(frame_buffer, ivec3(ss, 0), vec4(output_col, depth));
         imageStore(frame_buffer, ivec3(ss, 1), vec4(normal, shadow_map));
+
+        // for (int i = 0; i < 7; i++) {
+        //     imageStore(debug_image, ivec2(i, 0), vec4(GetVoxel(i)));
+        // }
+
+        // Voxel voxel = FindVoxel(vec3(cs, sin(u.time / 1000.0)));
+
+        // vec3 colour;
+        // colour = Unpacku8(voxel.value).rgb / 255.0;
+
+        // imageStore(frame_buffer, ivec3(ss, 0), vec4(colour, 0));
     }
 
     frag_colour = vec4(1.0, 0.0, 0.0, 1.0);

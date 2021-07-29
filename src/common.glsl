@@ -29,7 +29,6 @@ uvec2 Unpacku8u24(uint p) {
     );
 }
 
-
 // Packs 2 u16s into a u32
 uint Packu16u16(uvec2 p){
     return p.y | (p.x << 16);

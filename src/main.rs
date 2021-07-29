@@ -37,7 +37,7 @@ use std::time::SystemTime;
 type Vector3 = na::Vector3<f32>;
 type Matrix4 = na::Matrix4<f32>;
 
-static NUMBER_OF_SUBDIVISIONS: usize = 100000;
+// static NUMBER_OF_SUBDIVISIONS: usize = 100000;
 static RENDER_BUFFER_COUNT: u32 = 3;
 const FIBONACHI_LENGTH: usize = 20;
 
@@ -45,6 +45,8 @@ fn main() {
     // #region Initilisation
     let instance = Instance::new(None, &vulkano_win::required_extensions(), None).unwrap();
     let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
+
+    // println!("{}", physical.limits().max_image_dimension_2d());
 
     let mut input = WinitInputHelper::new();
 
@@ -151,56 +153,69 @@ fn main() {
     let pass3_uniform_buffer =
         CpuBufferPool::<pass3::ty::Uniforms>::new(device.clone(), BufferUsage::all());
 
-    let data_len;
-    let data_buffer = {
-        // let root_node_bytes = [26u8, 201, 137, 0];
-        // let root_node = u32::from_be_bytes(root_node_bytes);
-        let mut rng: SmallRng = SeedableRng::seed_from_u64(0);
-        let mut nodes: Vec<u32> = Vec::new();
+    let mut rng: SmallRng = SeedableRng::seed_from_u64(0);
+    let mut nodes: Vec<u64> = Vec::new();
+    let mut voxels: Vec<u32> = Vec::new();
 
-        fn add_leafs(nodes: &mut Vec<u32>, rng: &mut SmallRng) {
-            for _ in 0..8 {
-                // Add Leaf
-                nodes.push(u32::from_be_bytes([
-                    // 0 - Node
-                    // 1 - Empty Leaf
-                    // 2 - Solid Leaf
-                    if rng.gen_range(0..5) != 0 { 1 } else { 2 },
-                    // Colour
-                    rng.gen_range(120..250),
-                    rng.gen_range(120..250),
-                    rng.gen_range(120..250),
-                ]));
+    fn create_node(child_mask: u8, child_pointer: u32) -> u64 {
+        (child_pointer as u64) | ((child_mask as u64) << 32)
+    }
+
+    fn create_leaf(rng: &mut SmallRng) -> u32 {
+        u32::from_be_bytes([
+            // Colour
+            rng.gen_range(120..250),
+            rng.gen_range(120..250),
+            rng.gen_range(120..250),
+            0,
+        ])
+    }
+
+    fn add_nodes(child_mask: u8, nodes: &mut Vec<u64>) {
+        for i in 0..8 {
+            let bit = (child_mask >> i) & 1;
+            if bit != 0 {
+                nodes.push(create_node(0, 0));
             }
         }
+    }
 
-        fn subdivie_leaf(nodes: &mut Vec<u32>, rng: &mut SmallRng, node: usize) -> usize {
-            let i = nodes.len();
-            add_leafs(nodes, rng);
-            nodes[node] = i as u32;
-            i
+    nodes.push(create_node(0, 0));
+    for i in 0..8 {
+        if i == 0 {
+            let child_mask = 254;
+            let child_pointer = nodes.len() as u32;
+            nodes[i] = create_node(child_mask, child_pointer);
+
+            add_nodes(child_mask, &mut nodes);
+        } else {
+            let child_mask = 0;
+            let child_pointer = 2147483648 + voxels.len() as u32;
+            nodes[i] = create_node(child_mask, child_pointer);
+            
+            voxels.push(create_leaf(&mut rng));
         }
+    }
 
-        for _ in 0..4 {
-            nodes.push(0);
-        }
+    for i in 0..voxels.len() {
+        println!("r{}: {}", i, voxels[i]);
+    }
 
-        for i in 0..NUMBER_OF_SUBDIVISIONS {
-            if rng.gen_range(0..5) != 0 {
-                subdivie_leaf(&mut nodes, &mut rng, i);
-            }
-        }
+    let node_buffer = CpuAccessibleBuffer::from_iter(
+        device.clone(),
+        BufferUsage::all(),
+        false,
+        Vec::into_iter(nodes),
+    )
+    .unwrap();
 
-        data_len = nodes.len() as u32;
-
-        CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
-            false,
-            Vec::into_iter(nodes),
-        )
-        .unwrap()
-    };
+    let voxel_buffer = CpuAccessibleBuffer::from_iter(
+        device.clone(),
+        BufferUsage::all(),
+        false,
+        Vec::into_iter(voxels),
+    )
+    .unwrap();
 
     let golden_ratio = 1.61803398875;
     let pi = 3.14159265359;
@@ -311,7 +326,7 @@ fn main() {
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
     let time = SystemTime::now();
-    let mut last_time = time.elapsed().unwrap();
+    // let mut last_time = time.elapsed().unwrap();
 
     let mut cam_pos = Vector3::new(1.0, 1.0, 1.0);
     let mut cam_target = Vector3::new(-1.0, -1.0, -1.0).normalize();
@@ -377,10 +392,10 @@ fn main() {
                 // #endregion
 
                 // #region Update Buffers
-                let fps = (1.0
-                    / ((time.elapsed().unwrap() - last_time).as_millis() as f64 / 1000.0))
-                    as i32;
-                last_time = time.elapsed().unwrap();
+                // let fps = (1.0
+                //     / ((time.elapsed().unwrap() - last_time).as_millis() as f64 / 1000.0))
+                //     as i32;
+                // last_time = time.elapsed().unwrap();
 
                 // println!("{:?}", fps);
 
@@ -462,6 +477,18 @@ fn main() {
                 // #endregion
 
                 // #region Create Buffers
+                // dont use me i'm slow and bad! (but good for debuging) - shader_debug
+                // let debug_image = StorageImage::new(
+                //     device.clone(),
+                //     Dimensions::Dim2d {
+                //         width: 50,
+                //         height: 1,
+                //     },
+                //     Format::R32Sfloat,
+                //     Some(queue.family()),
+                // )
+                // .unwrap();
+
                 let camera_matrix_inverse = camera_matrix.try_inverse().unwrap_or(Matrix4::identity());
                 let camera_matrix_last_inverse = camera_matrix_last.try_inverse().unwrap_or(Matrix4::identity());
 
@@ -519,7 +546,6 @@ fn main() {
                     cam: pass2_cam.into(),
                     light_pos: light_pos.into(),
                     normal_bias: normal_bias,
-                    data_len: data_len,
                     debug_setting: debug_setting as u32,
                     _dummy0: [0, 0, 0, 0, 0, 0, 0, 0],
                 };
@@ -531,8 +557,13 @@ fn main() {
                     .unwrap()
                     .add_image(pass_images.clone())
                     .unwrap()
-                    .add_buffer(data_buffer.clone())
+                    .add_buffer(node_buffer.clone())
                     .unwrap()
+                    .add_buffer(voxel_buffer.clone())
+                    .unwrap()
+                    // For debuging ONLY - shader_debug
+                    // .add_image(debug_image.clone())
+                    // .unwrap()
                     .build()
                     .unwrap(),
                 );
@@ -578,13 +609,16 @@ fn main() {
                 // #region Render Frame
                 let clear_values = vec![[0.1255, 0.7373, 0.8471, 1.0].into()];
 
-                let mut graphics_builder = AutoCommandBufferBuilder::primary_one_time_submit(
+                let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
                     device.clone(),
                     queue.family(),
                 )
                 .unwrap();
 
-                graphics_builder
+                // slow and bad! only for debuging! - shader_debug
+                // let debug_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, (0 .. 50).map(|_| 0f32)).expect("failed to create buffer");
+
+                builder
                     .begin_render_pass(
                         framebuffers[image_num].clone(),
                         SubpassContents::Inline,
@@ -619,19 +653,33 @@ fn main() {
                     )
                     .unwrap()
                     .end_render_pass()
-                    .unwrap();
-                let graphics_command_buffer = graphics_builder.build().unwrap();
-
+                    .unwrap()
+                    // ONLY FOR DEBUGING - shader_debug
+                    // .copy_image_to_buffer(debug_image.clone(), debug_buffer.clone())
+                    // .unwrap()
+                    ;
+                let command_buffer = builder.build().unwrap();
+                
                 let graphics_future = previous_frame_end
                     .take()
                     .unwrap()
                     .join(acquire_future)
-                    .then_execute(queue.clone(), graphics_command_buffer)
+                    .then_execute(queue.clone(), command_buffer)
                     .unwrap()
                     .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
-                    .then_signal_fence_and_flush();
-                // #endregion
-
+                    .then_signal_fence_and_flush()
+                    // Kills program for debuging - shader_debug
+                    // .unwrap()
+                    // .wait(None)
+                    // .unwrap()
+                    ;
+                
+                // shader_debug
+                // let buffer_content = debug_buffer.read().unwrap();
+                // for i in 0..9 {
+                //     println!("{}: {}", i, buffer_content[i]);
+                // }
+                
                 match graphics_future {
                     Ok(future) => {
                         previous_frame_end = Some(future.boxed());
@@ -645,38 +693,10 @@ fn main() {
                         previous_frame_end = Some(sync::now(device.clone()).boxed());
                     }
                 }
+                // #endregion
             }
         }
     });
-}
-
-// https://www.scratchapixel.com/lessons/3d-basic-rendering/perspective-and-orthographic-projection-matrix/building-basic-perspective-projection-matrix
-fn create_projection_matrix(fov: f32, aspect: f32, near: f32, far: f32) -> Matrix4 {
-    let scale = (fov * 0.5).tan() * near;
-    let r = aspect * scale;
-    let t = scale;
-
-    Matrix4::new(
-        near / r,
-        0.0,
-        0.0,
-        0.0,
-        //
-        0.0,
-        near / t,
-        0.0,
-        0.0,
-        //
-        0.0,
-        0.0,
-        -(far + near) / (far - near),
-        -2.0 * far * near / (far - near),
-        //
-        0.0,
-        0.0,
-        -1.0,
-        0.0,
-    )
 }
 
 fn size_dependent_setup(

@@ -97,6 +97,7 @@ void main() {
     // ACES Tonemapping
     output_col = (output_col * (2.51 * output_col + 0.03)) / (output_col * (2.43 * output_col + 0.59) + 0.14);
 
+    // frag_colour = vec4(colour, 0);
     if (u.debug_setting) {
         frag_colour = vec4(layer2.xyz, 1.0);
     } else {

@@ -2,7 +2,20 @@
 
 ## Octree
 
-The octree is made with nodes and leafs. The octree always has the first 8 children leafs. A node is made of two parts. A u8 containg 0 for node, 1 for empty leaf and 2 for solid leaf and a u24 containg the index of the node's first child. The other children can be found by adding the child index to the index of the first child. A leaf contains the same first u8 with the type and then a u8 for red a u8 for green and a u8 for blue.
+### SVO Buffer
+
+Each node uses 2 ints. The bytes are laid out like this:
+
+    00000000 00000000 00000000 01101010 01101001 01101001 01101001 01101001
+     ^-----empty :(-----^ child mask-^   ^---------child pointer---------^
+
+
+Each voxel uses 1 int. The bytes are laid out like this:
+
+    01101001 01101001 01101001 00000000
+    ^-red    ^-green  ^-blue   ^-empty
+
+The octree is made with nodes and voxels. A node is made of two parts. A u8 with each bit refering to a child of the node, and a u24 containg the index of the node's first child. Becuase all the children of a node are grouped together other children of a node can be found by adding to the child index. A voxel currently only contains a rgb value for its colour. Multiple nodes *can* point to the same voxel.
 
 ## Framebuffers
 
