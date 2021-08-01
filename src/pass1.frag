@@ -34,11 +34,13 @@ void main() {
         vec3 old_pixel_pos = ScreenToWorld(cs, last_frame.w);
         vec3 reprojected_pos = WorldToScreen(old_pixel_pos);
 
-        ivec2 pos_on_current_frame = ivec2(((reprojected_pos.xy + 1.0) / 2.0) * u.resolution);
+        if (reprojected_pos.z > 0) {
+            ivec2 pos_on_current_frame = ivec2(((reprojected_pos.xy + 1.0) / 2.0) * u.resolution);
 
-        vec4 current = imageLoad(frame_buffer, ivec3(pos_on_current_frame, 2));
-        if (last_frame.w < current.w) {
-            imageStore(frame_buffer, ivec3(pos_on_current_frame, 2), vec4(last_frame));
+            vec4 current = imageLoad(frame_buffer, ivec3(pos_on_current_frame, 2));
+            if (last_frame.w < current.w) {
+                imageStore(frame_buffer, ivec3(pos_on_current_frame, 2), vec4(last_frame));
+            }
         }
     }
 

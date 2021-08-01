@@ -9,6 +9,7 @@ layout(set = 0, binding = 0) uniform Uniforms {
     float time;
     Camera cam;
     vec3 light_pos;
+    bool shadows;
     vec4 fibonacci_spiral[20];
     bool debug_setting;
 } u;
@@ -68,7 +69,6 @@ void main() {
     vec3 colour = layer0.rgb;
     float depth = layer0.a;
     vec3 normal = layer1.rgb;
-    float shadow_map = SoftShadow(ss, 75.0, 150.0);
 
     // Lighting
     // https://learnopengl.com/Lighting/Basic-Lighting
@@ -82,7 +82,13 @@ void main() {
     float specular = pow(max(dot(normal, halfwayDir), 0.0), 10.0) * int(diffuse > 0.0);
 
     float ambient = 0.35;
-    vec3 output_col = colour * mix(diffuse + specular + ambient, ambient, shadow_map);
+    vec3 output_col;
+    if (u.shadows) {
+        float shadow_map = SoftShadow(ss, 75.0, 150.0);
+        output_col = colour * mix(diffuse + specular + ambient, ambient, shadow_map);
+    } else {
+        output_col = colour * (diffuse + specular + ambient);
+    }
 
     // Tone mapping
     // https://github.com/dmnsgn/glsl-tone-map

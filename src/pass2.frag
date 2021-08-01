@@ -8,8 +8,9 @@ layout(set = 0, binding = 0) uniform Uniforms {
     uint render_buffer_count;
     float time;
     Camera cam;
-    vec3 light_pos;
     float normal_bias;
+    vec3 light_pos;
+    bool shadows;
     bool debug_setting;
 } u;
 
@@ -126,7 +127,7 @@ Voxel FindVoxel(vec3 pos) {
         // Voxel
         if (child_pointer >= 2147483648) {
             uint voxel = GetVoxel(node_index - 2147483648);
-            return Voxel(1, voxel, depth, node_pos);
+            return Voxel(1, 2155905024, depth, node_pos);
         }
 
         // Node
@@ -250,17 +251,19 @@ void main() {
             output_col = hit.colour;
             depth = length(hit.pos - ray.pos);
 
-            vec3 lightDir = u.light_pos - hit.pos;
-            vec3 lightDirNorm = normalize(lightDir);
+            if (u.shadows) {
+                vec3 lightDir = u.light_pos - hit.pos;
+                vec3 lightDirNorm = normalize(lightDir);
 
-            Ray shadow_ray = Ray(hit.pos + hit.normal * u.normal_bias, lightDirNorm);
-            HitInfo shadow = OctreeRay(shadow_ray, 25);
-            if (bool(shadow.hit)) {
-                float d_light = length(lightDir);
-                float d_occluder = length(hit.pos - shadow.pos);
-                shadow_map = d_occluder / d_light;
-            } else {
-                shadow_map = 1.0;
+                Ray shadow_ray = Ray(hit.pos + hit.normal * u.normal_bias, lightDirNorm);
+                HitInfo shadow = OctreeRay(shadow_ray, 25);
+                if (bool(shadow.hit)) {
+                    float d_light = length(lightDir);
+                    float d_occluder = length(hit.pos - shadow.pos);
+                    shadow_map = d_occluder / d_light;
+                } else {
+                    shadow_map = 1.0;
+                }
             }
         }
         

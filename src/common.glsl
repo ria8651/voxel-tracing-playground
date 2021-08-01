@@ -41,18 +41,6 @@ uvec2 Unpacku16u16(uint p) {
     );
 }
 
-vec2 GetClipSpace(vec4 frag_coord, uvec2 resolution) {
-    vec2 clip_space = frag_coord.xy / resolution * 2.0;
-    clip_space -= 1.0;
-    clip_space *= vec2(1.0, -1.0);
-    return clip_space;
-}
-
-ivec2 GetScreenSpace(vec4 frag_coord, uvec2 resolution) {
-    ivec2 screen_space = ivec2(frag_coord.x * 2, resolution.y) - ivec2(frag_coord.xy);
-    return screen_space;
-}
-
 vec2 Rotate(vec2 vec, float angle) {
     return vec2(
         vec.x * cos(angle) - vec.y * sin(angle), 
@@ -89,6 +77,19 @@ struct Ray {
     vec3 dir;
 };
 
+vec2 GetClipSpace(vec4 frag_coord, uvec2 resolution) {
+    vec2 clip_space = frag_coord.xy / resolution * 2.0;
+    clip_space -= 1.0;
+    clip_space *= vec2(1.0, -1.0);
+    return clip_space;
+}
+
+ivec2 GetScreenSpace(vec4 frag_coord, uvec2 resolution) {
+    ivec2 screen_space = ivec2(frag_coord.x * 2, resolution.y) - ivec2(frag_coord.xy);
+    return screen_space;
+}
+
+// Projection stuff from https://www.scratchapixel.com/lessons/3d-basic-rendering/perspective-and-orthographic-projection-matrix/building-basic-perspective-projection-matrix
 Ray GetCameraRay(mat4 camera_inverse, vec2 cs) {
     vec4 back = camera_inverse * vec4(0, 0, 0, 1); // Hard coded scaling xy by z
     vec4 front = camera_inverse * vec4(cs, 1, 1); // Hard coded scaling xy by z
