@@ -37,7 +37,7 @@ type Vector3 = na::Vector3<f32>;
 type Matrix4 = na::Matrix4<f32>;
 
 const FILE: &str = "rsvo/dragon.rsvo";
-const BOTTOM_LAYER: usize = 10;
+const BOTTOM_LAYER: usize = 8;
 const RENDER_BUFFER_COUNT: u32 = 3;
 const FIBONACHI_LENGTH: usize = 20;
 
@@ -636,7 +636,7 @@ fn main() {
                 
                 // shader_debug
                 // let buffer_content = debug_buffer.read().unwrap();
-                // for i in 0..9 {
+                // for i in 0..20 {
                 //     println!("{}: {}", i, buffer_content[i]);
                 // }
                 
@@ -666,15 +666,15 @@ fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
         (child_pointer as u64) | ((child_mask as u64) << 32)
     }
 
-    fn create_leaf(rng: &mut SmallRng) -> u32 {
-        u32::from_be_bytes([
-            // Colour
-            rng.gen_range(120..250),
-            rng.gen_range(120..250),
-            rng.gen_range(120..250),
-            0,
-        ])
-    }
+    // fn create_leaf(rng: &mut SmallRng) -> u32 {
+    //     u32::from_be_bytes([
+    //         // Colour
+    //         rng.gen_range(120..250),
+    //         rng.gen_range(120..250),
+    //         rng.gen_range(120..250),
+    //         0,
+    //     ])
+    // }
 
     fn add_nodes(child_mask: u8, nodes: &mut Vec<u64>) {
         for i in 0..8 {
@@ -695,7 +695,6 @@ fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
     let node_count_start = 20;
     
     let top_level = data[top_level_start] as usize; // 14
-    println!("Top level: {}", top_level);
     
     let data_start = node_count_start + 4 * (top_level + 1);
     
@@ -718,8 +717,15 @@ fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
     let node_end = node_counts[0..bottom_layer].iter().sum::<u32>() as usize;
     let voxel_end = node_counts[0..(bottom_layer + 1)].iter().sum::<u32>() as usize;
     
+    let colours = [
+        165681920,
+        229120512,
+        564313856,
+        242458112,
+    ];
+    
     nodes.push(create_node(0, 0));
-    voxels.push(create_leaf(&mut rng));
+    voxels.extend(colours.iter().copied());
     for i in 0..voxel_end {
         if i < node_end {
             let child_mask = data[data_start + i];
@@ -729,7 +735,7 @@ fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
             add_nodes(child_mask, &mut nodes);
         } else {
             let child_mask = 0;
-            let child_pointer = 2147483648; // + voxels.len() as u32;
+            let child_pointer = 2147483648 + rng.gen_range(0..voxels.len() as u32); // + voxels.len() as u32;
             nodes[i] = create_node(child_mask, child_pointer);
             
             // voxels.push(create_leaf(&mut rng));
@@ -737,50 +743,6 @@ fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
     }
     
     (nodes, voxels)
-    
-    // let data_buffer = {
-        
-        
-    //     let mut nodes: Vec<u32> = Vec::new();
-    //     let mut index = 0;
-    //     for i in 0..9 {
-    //         // let child_pointer = nodes.len() as u32 + 1;
-    //         // let node = create_node(child_pointer);
-    //         // nodes.push(node);
-
-    //         let child_mask = data[data_start + i];
-    //         for j in (0..8).rev() {
-    //             if ((child_mask >> j) & 1) != 0 {
-    //                 if i > 0 {
-    //                     // nodes.push(create_node(0));
-    //                     nodes.push(create_voxel(true, Vector3::new(255.0, 255.0, 255.0)));
-    //                 }
-    //             } else {
-    //                 nodes.push(create_voxel(false, Vector3::new(0.0, 0.0, 0.0)));
-    //             }
-    //         }
-    //     }
-
-    //     for node in nodes.iter() {
-    //         println!("{:?}", node);
-    //     }
-    // };
-
-    // for i in 0..8 {
-    //     if i == 0 {
-    //         let child_mask = 254;
-    //         let child_pointer = nodes.len() as u32;
-    //         nodes[i] = create_node(child_mask, child_pointer);
-            
-    //         add_nodes(child_mask, &mut nodes);
-    //     } else {
-    //         let child_mask = 0;
-    //         let child_pointer = 2147483648 + voxels.len() as u32;
-    //         nodes[i] = create_node(child_mask, child_pointer);
-            
-    //         voxels.push(create_leaf(&mut rng));
-    //     }
-    // }
 }
 // #endregion
 

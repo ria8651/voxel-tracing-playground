@@ -126,8 +126,8 @@ Voxel FindVoxel(vec3 pos) {
 
         // Voxel
         if (child_pointer >= 2147483648) {
-            uint voxel = GetVoxel(node_index - 2147483648);
-            return Voxel(1, 2155905024, depth, node_pos);
+            uint voxel = GetVoxel(child_pointer - 2147483648);
+            return Voxel(1, voxel, depth, node_pos);
         }
 
         // Node
@@ -269,8 +269,12 @@ void main() {
         
         imageStore(frame_buffer, ivec3(ss, 0), vec4(output_col, depth));
         imageStore(frame_buffer, ivec3(ss, 1), vec4(normal, shadow_map));
+        
+        // vec2 pos = ((cs + 1.0) / 2.0) * 4.0;
+        // uint index = uint(pos.y) * 4 + uint(pos.x);
+        // output_col = Unpacku8(GetVoxel(index)).rgb / 255.0;
 
-        // for (int i = 0; i < 7; i++) {
+        // for (int i = 0; i < 20; i++) {
         //     imageStore(debug_image, ivec2(i, 0), vec4(GetVoxel(i)));
         // }
 
