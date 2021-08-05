@@ -27,11 +27,8 @@ layout(set = 0, binding = 3) buffer VoxelBuffer {
 // Only for debuging - shader_debug
 // layout(set = 0, binding = 4, r32f) uniform image2D debug_image;
 
-uvec2 GetNode(uint index) {
-    uint remainder = (index % 2) * 2;
-    uint child_mask = node_buffer.data[index / 2][remainder + 1];
-    uint child_pointer = node_buffer.data[index / 2][remainder];
-    return uvec2(child_mask, child_pointer);
+uint GetNode(uint index) {
+    return node_buffer.data[index / 4][index % 4];
 }
 
 uint GetVoxel(uint index) {
@@ -102,7 +99,6 @@ uint CountSetBits(uint n) {
 }
 
 struct Voxel {
-    uint exisits;
     uint value;
     uint depth;
     vec3 pos;
@@ -113,10 +109,6 @@ Voxel FindVoxel(vec3 pos) {
     uint node_index = 0;
     vec3 node_pos = vec3(0);
     for (int depth = 1; depth < 100; depth++) {
-        uvec2 node = GetNode(node_index);
-        uint child_mask = node.x;
-        uint child_pointer = node.y;
-
         uint x = uint(pos.x > node_pos.x);
         uint y = uint(pos.y > node_pos.y);
         uint z = uint(pos.z > node_pos.z);
@@ -124,22 +116,17 @@ Voxel FindVoxel(vec3 pos) {
 
         node_pos += (vec3(x, y, z) * 2 - 1) / pow(2, depth);
 
+        uint child_pointer = GetNode(node_index + child_index);
+
         // Voxel
         if (child_pointer >= 2147483648) {
             uint voxel = GetVoxel(child_pointer - 2147483648);
-            return Voxel(1, voxel, depth, node_pos);
+            return Voxel(voxel, depth, node_pos);
         }
 
         // Node
-        uint bit = (child_mask >> child_index) & 1;
-        if (bool(bit)) {
-            uint mask = uint(pow(2, child_index)) - 1;
-            uint offset = CountSetBits(child_mask & mask);
-            node_index = child_pointer + offset;
-            // return Voxel(0, 1000000000, depth, node_pos);
-        } else {
-            return Voxel(0, 30000, depth, node_pos);
-        }
+        node_index = child_pointer;
+        // return Voxel(Packu8(uvec4(125, 125, 125, 255)), depth, node_pos);
     }
 }
 
@@ -150,7 +137,6 @@ bool PointInOctree(vec3 v) {
 }
 
 struct HitInfo {
-    int hit;
     vec3 colour;
     vec3 normal;
     vec3 pos;
@@ -158,13 +144,14 @@ struct HitInfo {
 
 // Casts ray through octree (relatively slow)
 // https://github.com/cgyurgyik/fast-voxel-traversal-algorithm/blob/566dab84a0b44de3d2f1c64b423d63e525ab05bd/overview/FastVoxelTraversalOverview.md
-HitInfo OctreeRay(Ray r, int maxSteps) {
+// https://web.cs.wpi.edu/~matt/courses/cs563/talks/powwie/p1/ray-cast.htm - for volume adaptation
+HitInfo OctreeRay(Ray r, int maxSteps, vec3 skybox) {
     float dist = 0;
     if (!PointInOctree(r.pos)) {
         // Get position on surface of the octree
         BoxDist dist = RayBoxDist(r, vec3(-1), vec3(1));
         if (dist.hit == 0){
-            return HitInfo(0, vec3(0), vec3(0), vec3(0));
+            return HitInfo(skybox, vec3(0), vec3(0));
         }
 
         r.pos += r.dir * dist.dist;
@@ -178,15 +165,16 @@ HitInfo OctreeRay(Ray r, int maxSteps) {
     int steps = 0;
     vec3 pos = r.pos;
     vec3 normal = trunc(r.pos * (1 + u.normal_bias));
-    vec3 colour = vec3(0);
+    vec4 colour = vec4(0, 0, 0, 1);
     while (true) {
         Voxel voxel = FindVoxel(pos + -normal * u.normal_bias);
+        vec4 data = Unpacku8(voxel.value) / 255.0;
 
-        if (bool(voxel.exisits)) {
-            colour = Unpacku8(voxel.value).rgb / 255.0;
+        // if (data.a == 255) {
+            
             // colour = vec3(steps / float(maxSteps));
-            break;
-        }
+            // break;
+        // }
         
         float size = 1.0 / pow(2, voxel.depth - 1);
         vec3 tMax = (voxel.pos - pos + rSign * size / 2.0) / r.dir;
@@ -215,20 +203,34 @@ HitInfo OctreeRay(Ray r, int maxSteps) {
             }
         }
 
+        // Front to back blending
+        // http://developer.download.nvidia.com/SDK/10/opengl/src/dual_depth_peeling/doc/DualDepthPeeling.pdf - page 6
+        colour = vec4(
+            colour.a * (data.a * data.rgb) + colour.rgb, // * min(min(tMax.x, tMax.y), tMax.z) * 128
+            (1 - data.a) * colour.a
+        );
+        
+        if (colour.a < 0.05) {
+            break;
+        }
+
+        // Back to front blending
+        // colour = colour * (1 - data.a) + data * data.a;
+
         // Get voxel in front of ray
         pos = r.pos + r.dir * tCurrent;
         if (!PointInOctree(pos + -normal * u.normal_bias)) {
-            return HitInfo(0, vec3(0), vec3(0), vec3(0));
+            break;
         }
 
         steps += 1;
         if (steps >= maxSteps) {
-            colour = vec3(1, 0, 0);
+            colour = vec4(1, 0, 0, 1);
             break;
         }
     }
-    
-    return HitInfo(1, colour, normal, pos);
+
+    return HitInfo(colour.a * skybox + colour.rgb, normal, pos);
     //distance(r.pos, pos) + dist
 }
 
@@ -237,35 +239,35 @@ void main() {
         ivec2 ss = GetScreenSpace(gl_FragCoord, u.resolution);
         vec2 cs = GetClipSpace(gl_FragCoord, u.resolution);
 
-        vec3 output_col = vec3(0.1255, 0.7373, 0.8471);
+        vec3 skybox = vec3(0.0, 0.0627, 0.0745);
         float depth = 10000.0;
         float shadow_map = 1.0;
         float diffuse = 1.0;
         float specular = 0.0;
 
         Ray ray = GetCameraRay(u.cam.camera_inverse, cs);
-        HitInfo hit = OctreeRay(ray, 100);
+        HitInfo hit = OctreeRay(ray, 200, skybox);
         vec3 normal = hit.normal;
+        vec3 output_col = hit.colour;
 
-        if (bool(hit.hit)) {
-            output_col = hit.colour;
-            depth = length(hit.pos - ray.pos);
+        // if (bool(hit.hit)) {
+            // depth = length(hit.pos - ray.pos);
 
-            if (u.shadows) {
-                vec3 lightDir = u.light_pos - hit.pos;
-                vec3 lightDirNorm = normalize(lightDir);
+            // if (u.shadows) {
+            //     vec3 lightDir = u.light_pos - hit.pos;
+            //     vec3 lightDirNorm = normalize(lightDir);
 
-                Ray shadow_ray = Ray(hit.pos + hit.normal * u.normal_bias, lightDirNorm);
-                HitInfo shadow = OctreeRay(shadow_ray, 25);
-                if (bool(shadow.hit)) {
-                    float d_light = length(lightDir);
-                    float d_occluder = length(hit.pos - shadow.pos);
-                    shadow_map = d_occluder / d_light;
-                } else {
-                    shadow_map = 1.0;
-                }
-            }
-        }
+            //     Ray shadow_ray = Ray(hit.pos + hit.normal * u.normal_bias, lightDirNorm);
+            //     HitInfo shadow = OctreeRay(shadow_ray, 25);
+            //     if (bool(shadow.hit)) {
+            //         float d_light = length(lightDir);
+            //         float d_occluder = length(hit.pos - shadow.pos);
+            //         shadow_map = d_occluder / d_light;
+            //     } else {
+            //         shadow_map = 1.0;
+            //     }
+            // }
+        // }
         
         imageStore(frame_buffer, ivec3(ss, 0), vec4(output_col, depth));
         imageStore(frame_buffer, ivec3(ss, 1), vec4(normal, shadow_map));

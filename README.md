@@ -27,7 +27,7 @@ Everything is cross platfrom except for shaderc so make sure to go through [here
 
 ## Sources
 
-Most of the rust code is taken from the [Vulkano Examples](https://github.com/vulkano-rs/vulkano-examples) triangle demo. I used it for basic rendering and I used the basic compute shader demo for the SSBO. This project relies on:
+Most of the rust code is taken from the [Vulkano Examples](https://github.com/vulkano-rs/vulkano-examples) triangle demo. I used it for basic rendering and I used the basic compute shader demo for the SSBO. I got the .rsvo files from [here](https://github.com/ephtracy/voxel-model/tree/master/svo). This project relies on:
 
  - [winit](https://github.com/rust-windowing/winit)
  - [vulkano](https://github.com/vulkano-rs/vulkano)

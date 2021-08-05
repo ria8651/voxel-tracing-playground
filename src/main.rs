@@ -1,3 +1,4 @@
+// #region Imports
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents};
@@ -35,9 +36,10 @@ use std::time::SystemTime;
 
 type Vector3 = na::Vector3<f32>;
 type Matrix4 = na::Matrix4<f32>;
+// #endregion
 
-const FILE: &str = "rsvo/dragon.rsvo";
-const BOTTOM_LAYER: usize = 8;
+const FILE: &str = "rsvo/sibenik.rsvo";
+const BOTTOM_LAYER: usize = 10;
 const RENDER_BUFFER_COUNT: u32 = 3;
 const FIBONACHI_LENGTH: usize = 20;
 
@@ -46,7 +48,9 @@ fn main() {
     let instance = Instance::new(None, &vulkano_win::required_extensions(), None).unwrap();
     let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
 
-    // println!("{}", physical.limits().max_image_dimension_2d());
+    // https://docs.rs/vulkano/0.21.0/vulkano/instance/struct.Limits.html
+    // println!("{}", physical.limits().max_image_array_layers());
+    // panic!("");
 
     let mut input = WinitInputHelper::new();
 
@@ -162,7 +166,7 @@ fn main() {
         Vec::into_iter(nodes),
     )
     .unwrap();
-    
+
     let voxel_buffer = CpuAccessibleBuffer::from_iter(
         device.clone(),
         BufferUsage::all(),
@@ -170,7 +174,7 @@ fn main() {
         Vec::into_iter(voxels),
     )
     .unwrap();
-    
+
     let golden_ratio = 1.61803398875;
     let pi = 3.14159265359;
 
@@ -642,16 +646,16 @@ fn main() {
                 
                 match graphics_future {
                     Ok(future) => {
-                        previous_frame_end = Some(future.boxed());
-                    }
-                    Err(FlushError::OutOfDate) => {
-                        recreate_swapchain = true;
-                        previous_frame_end = Some(sync::now(device.clone()).boxed());
-                    }
-                    Err(e) => {
-                        println!("Failed to flush future: {:?}", e);
-                        previous_frame_end = Some(sync::now(device.clone()).boxed());
-                    }
+                            previous_frame_end = Some(future.boxed());
+                        }
+                        Err(FlushError::OutOfDate) => {
+                            recreate_swapchain = true;
+                            previous_frame_end = Some(sync::now(device.clone()).boxed());
+                        }
+                        Err(e) => {
+                            println!("Failed to flush future: {:?}", e);
+                            previous_frame_end = Some(sync::now(device.clone()).boxed());
+                        }
                 }
                 // #endregion
             }
@@ -661,43 +665,45 @@ fn main() {
 
 // #region Create octree
 // Models from https://github.com/ephtracy/voxel-model/tree/master/svo
-fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
-    fn create_node(child_mask: u8, child_pointer: u32) -> u64 {
-        (child_pointer as u64) | ((child_mask as u64) << 32)
+fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u32>, Vec<u32>) {
+    fn create_voxel(r: u8, g: u8, b: u8, a: u8) -> u32 {
+        u32::from_be_bytes([r, g, b, a])
     }
 
-    // fn create_leaf(rng: &mut SmallRng) -> u32 {
-    //     u32::from_be_bytes([
-    //         // Colour
-    //         rng.gen_range(120..250),
-    //         rng.gen_range(120..250),
-    //         rng.gen_range(120..250),
-    //         0,
-    //     ])
-    // }
+    fn create_leaf(voxel_index: u32) -> u32 {
+        // rng.gen_range(0..voxels.len() as u32); // + voxels.len() as u32;
+        2147483648 + voxel_index
+    }
 
-    fn add_nodes(child_mask: u8, nodes: &mut Vec<u64>) {
+    fn create_empty_leaf() -> u32 {
+        create_leaf(0)
+    }
+
+    fn add_nodes(mask: u8, nodes: &mut Vec<u32>) {
         for i in 0..8 {
-            let bit = (child_mask >> i) & 1;
-            if bit != 0 {
-                nodes.push(create_node(0, 0));
+            let bit = (mask >> i) & 1;
+            if bit == 0 {
+                nodes.push(create_empty_leaf());
+            } else {
+                nodes.push(0);
+                // nodes.push(create_leaf(1));
             }
         }
     }
 
     let mut rng: SmallRng = SeedableRng::seed_from_u64(0);
-    let mut nodes: Vec<u64> = Vec::new();
+    let mut nodes: Vec<u32> = Vec::new();
     let mut voxels: Vec<u32> = Vec::new();
 
     let data = std::fs::read(file).unwrap();
-        
+
     let top_level_start = 16;
     let node_count_start = 20;
-    
+
     let top_level = data[top_level_start] as usize; // 14
-    
+
     let data_start = node_count_start + 4 * (top_level + 1);
-    
+
     let mut node_counts = [0; 15];
     for i in 0..(top_level + 1) {
         let node_count = u32::from_be_bytes([
@@ -705,41 +711,45 @@ fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
             data[node_count_start + i * 4 + 2],
             data[node_count_start + i * 4 + 1],
             data[node_count_start + i * 4],
-            ]);
-                
+        ]);
+
         node_counts[i] = node_count;
         println!("Nodes at level {}: {}", i, node_count);
     }
 
-    println!("root node ({}): {:#010b}", data_start, data[data_start]);
-
     // let bottom_layer = 10;
     let node_end = node_counts[0..bottom_layer].iter().sum::<u32>() as usize;
-    let voxel_end = node_counts[0..(bottom_layer + 1)].iter().sum::<u32>() as usize;
-    
+
     let colours = [
-        165681920,
-        229120512,
-        564313856,
-        242458112,
+        create_voxel(255, 125, 125, 0),
+        create_voxel(50, 240, 113, 18),
+        create_voxel(50, 240, 183, 18),
+        create_voxel(40, 166, 224, 18),
+        create_voxel(30, 102, 201, 18),
+        create_voxel(125, 125, 125, 255),
     ];
-    
-    nodes.push(create_node(0, 0));
     voxels.extend(colours.iter().copied());
-    for i in 0..voxel_end {
-        if i < node_end {
-            let child_mask = data[data_start + i];
-            let child_pointer = nodes.len() as u32;
-            nodes[i] = create_node(child_mask, child_pointer);
-            
-            add_nodes(child_mask, &mut nodes);
-        } else {
-            let child_mask = 0;
-            let child_pointer = 2147483648 + rng.gen_range(0..voxels.len() as u32); // + voxels.len() as u32;
-            nodes[i] = create_node(child_mask, child_pointer);
-            
-            // voxels.push(create_leaf(&mut rng));
+
+    add_nodes(data[data_start], &mut nodes);
+
+    let mut data_index = 1;
+    let mut node_index = 0;
+    while node_index < nodes.len() {
+        if nodes[node_index] != create_empty_leaf() {
+            if data_index < node_end {
+                let child_mask = data[data_start + data_index];
+                let child_pointer = nodes.len() as u32;
+                nodes[node_index] = child_pointer;
+
+                add_nodes(child_mask, &mut nodes);
+            } else {
+                nodes[node_index] = create_leaf(rng.gen_range(1..5));
+            }
+
+            data_index += 1;
         }
+
+        node_index += 1;
     }
     
     (nodes, voxels)
@@ -750,51 +760,21 @@ fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
 fn create_view_matrix(eye: &Vector3, forward: &Vector3, up: &Vector3) -> Matrix4 {
     let right = Vector3::cross(up, forward).normalize();
     let up = Vector3::cross(forward, &right);
-    
+
     let pos = *eye;
 
     let rotation = Matrix4::new(
-        right.x,
-        right.y,
-        right.z,
-        0.0,
-        //
-        up.x,
-        up.y,
-        up.z,
-        0.0,
-        //
-        forward.x,
-        forward.y,
-        forward.z,
-        0.0,
-        //
-        0.0,
-        0.0,
-        0.0,
-        1.0,
+        right.x, right.y, right.z, 0.0, //
+        up.x, up.y, up.z, 0.0, //
+        forward.x, forward.y, forward.z, 0.0, //
+        0.0, 0.0, 0.0, 1.0,
     );
-    
-    let translation = Matrix4::new (
-        1.0,
-        0.0,
-        0.0,
-        -pos.x,
-        //
-        0.0,
-        1.0,
-        0.0,
-        -pos.y,
-        //
-        0.0,
-        0.0,
-        1.0,
-        -pos.z,
-        //
-        0.0,
-        0.0,
-        0.0,
-        1.0,
+
+    let translation = Matrix4::new(
+        1.0, 0.0, 0.0, -pos.x, //
+        0.0, 1.0, 0.0, -pos.y, //
+        0.0, 0.0, 1.0, -pos.z, //
+        0.0, 0.0, 0.0, 1.0,
     );
 
     rotation * translation

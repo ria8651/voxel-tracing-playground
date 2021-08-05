@@ -72,23 +72,23 @@ void main() {
 
     // Lighting
     // https://learnopengl.com/Lighting/Basic-Lighting
-    Ray ray = GetCameraRay(u.cam.camera_inverse, cs);
-    vec3 pos = ray.pos + ray.dir * depth;
+    // Ray ray = GetCameraRay(u.cam.camera_inverse, cs);
+    // vec3 pos = ray.pos + ray.dir * depth;
 
-    vec3 lightDir = normalize(u.light_pos - pos);
-    vec3 halfwayDir = normalize(lightDir - ray.dir);
+    // vec3 lightDir = normalize(u.light_pos - pos);
+    // vec3 halfwayDir = normalize(lightDir - ray.dir);
 
-    float diffuse = max(dot(normal, lightDir), 0.0);
-    float specular = pow(max(dot(normal, halfwayDir), 0.0), 10.0) * int(diffuse > 0.0);
+    // float diffuse = max(dot(normal, lightDir), 0.0);
+    // float specular = pow(max(dot(normal, halfwayDir), 0.0), 10.0) * int(diffuse > 0.0);
 
-    float ambient = 0.35;
-    vec3 output_col;
-    if (u.shadows) {
-        float shadow_map = SoftShadow(ss, 75.0, 150.0);
-        output_col = colour * mix(diffuse + specular + ambient, ambient, shadow_map);
-    } else {
-        output_col = colour * (diffuse + specular + ambient);
-    }
+    // float ambient = 0.35;
+    // vec3 output_col;
+    // if (u.shadows) {
+    //     float shadow_map = SoftShadow(ss, 75.0, 150.0);
+    //     output_col = colour * mix(diffuse + specular + ambient, ambient, shadow_map);
+    // } else {
+    //     output_col = colour * (diffuse + specular + ambient);
+    // }
 
     // Tone mapping
     // https://github.com/dmnsgn/glsl-tone-map
@@ -101,14 +101,14 @@ void main() {
     // output_col = 0.66 * pow(output_col, vec3(0.624));
 
     // ACES Tonemapping
-    output_col = (output_col * (2.51 * output_col + 0.03)) / (output_col * (2.43 * output_col + 0.59) + 0.14);
+    // output_col = (output_col * (2.51 * output_col + 0.03)) / (output_col * (2.43 * output_col + 0.59) + 0.14);
 
-    // frag_colour = vec4(colour, 0);
-    if (u.debug_setting) {
-        frag_colour = vec4(layer2.xyz, 1.0);
-    } else {
-        frag_colour = vec4(output_col, 1.0);
-    }
+    frag_colour = vec4(colour, 0);
+    // if (u.debug_setting) {
+    //     frag_colour = vec4(layer2.xyz, 1.0);
+    // } else {
+    //     frag_colour = vec4(output_col, 1.0);
+    // }
 }
 
 // vec3 output_col = vec3(0);
