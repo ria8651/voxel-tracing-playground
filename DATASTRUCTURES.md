@@ -6,8 +6,8 @@
 
 Each node uses 2 ints. The bytes are laid out like this:
 
-    00000000 00000000 00000000 01101010 01101001 01101001 01101001 01101001
-     ^-----empty :(-----^ child mask-^   ^---------child pointer---------^
+    01101010 01101010 01101010 01101010 01101001 01101001 01101001 01101001
+     ^-child mask ^--material index--^   ^---------child pointer---------^
 
 
 Each voxel uses 1 int. The bytes are laid out like this:

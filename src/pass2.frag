@@ -11,6 +11,7 @@ layout(set = 0, binding = 0) uniform Uniforms {
     float normal_bias;
     vec3 light_pos;
     bool shadows;
+    uint max_depth;
     bool debug_setting;
 } u;
 
@@ -27,11 +28,19 @@ layout(set = 0, binding = 3) buffer VoxelBuffer {
 // Only for debuging - shader_debug
 // layout(set = 0, binding = 4, r32f) uniform image2D debug_image;
 
-uvec2 GetNode(uint index) {
+struct Node {
+    uint child_mask;
+    uint material_id;
+    uint child_pointer;
+};
+
+Node GetNode(uint index) {
     uint remainder = (index % 2) * 2;
-    uint child_mask = node_buffer.data[index / 2][remainder + 1];
-    uint child_pointer = node_buffer.data[index / 2][remainder];
-    return uvec2(child_mask, child_pointer);
+    uint first_u32 = node_buffer.data[index / 2][remainder + 1];
+    uint second_u32 = node_buffer.data[index / 2][remainder];
+
+    uvec2 split = Unpacku8u24(first_u32);
+    return Node(split.x, split.y, second_u32);
 }
 
 uint GetVoxel(uint index) {
@@ -113,9 +122,7 @@ Voxel FindVoxel(vec3 pos) {
     uint node_index = 0;
     vec3 node_pos = vec3(0);
     for (int depth = 1; depth < 100; depth++) {
-        uvec2 node = GetNode(node_index);
-        uint child_mask = node.x;
-        uint child_pointer = node.y;
+        Node node = GetNode(node_index);
 
         uint x = uint(pos.x > node_pos.x);
         uint y = uint(pos.y > node_pos.y);
@@ -124,18 +131,18 @@ Voxel FindVoxel(vec3 pos) {
 
         node_pos += (vec3(x, y, z) * 2 - 1) / pow(2, depth);
 
-        // Voxel
-        if (child_pointer >= 2147483648) {
-            uint voxel = GetVoxel(child_pointer - 2147483648);
+        // Leaf
+        if (node.child_mask == 0 || depth > u.max_depth) {
+            uint voxel = GetVoxel(node.material_id);
             return Voxel(1, voxel, depth, node_pos);
         }
 
         // Node
-        uint bit = (child_mask >> child_index) & 1;
+        uint bit = (node.child_mask >> child_index) & 1;
         if (bool(bit)) {
             uint mask = uint(pow(2, child_index)) - 1;
-            uint offset = CountSetBits(child_mask & mask);
-            node_index = child_pointer + offset;
+            uint offset = CountSetBits(node.child_mask & mask);
+            node_index = node.child_pointer + offset;
             // return Voxel(0, 1000000000, depth, node_pos);
         } else {
             return Voxel(0, 30000, depth, node_pos);

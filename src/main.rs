@@ -293,6 +293,7 @@ fn main() {
 
     let mut normal_bias = 0.000001;
     let mut speed = 0.02;
+    let mut max_depth = BOTTOM_LAYER;
     let mut debug_setting = false;
     let mut shadows = false;
 
@@ -400,17 +401,23 @@ fn main() {
                 if input.key_pressed(VirtualKeyCode::Up) {
                     normal_bias += 0.000001;
                 }
-
                 if input.key_pressed(VirtualKeyCode::Down) {
                     normal_bias -= 0.000001;
                 }
 
-                if input.key_pressed(VirtualKeyCode::P) {
-                    debug_setting = !debug_setting;
-                }
-
                 if input.key_pressed(VirtualKeyCode::O) {
                     shadows = !shadows;
+                }
+
+                if input.key_pressed(VirtualKeyCode::U) {
+                    max_depth -= 1;
+                }
+                if input.key_pressed(VirtualKeyCode::Y) {
+                    max_depth += 1;
+                }
+
+                if input.key_pressed(VirtualKeyCode::P) {
+                    debug_setting = !debug_setting;
                 }
 
                 if input.key_pressed(VirtualKeyCode::I) {
@@ -505,6 +512,7 @@ fn main() {
                     normal_bias: normal_bias,
                     light_pos: light_pos.into(),
                     shadows: shadows as u32,
+                    max_depth: max_depth as u32,
                     debug_setting: debug_setting as u32,
                     _dummy0: [0, 0, 0, 0, 0, 0, 0, 0],
                     _dummy1: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -662,8 +670,8 @@ fn main() {
 // #region Create octree
 // Models from https://github.com/ephtracy/voxel-model/tree/master/svo
 fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
-    fn create_node(child_mask: u8, child_pointer: u32) -> u64 {
-        (child_pointer as u64) | ((child_mask as u64) << 32)
+    fn create_node(child_mask: u8, material_id: u32, child_pointer: u32) -> u64 {
+        ((child_mask as u64) << 56) | ((material_id as u64) << 32) | (child_pointer as u64)
     }
 
     // fn create_leaf(rng: &mut SmallRng) -> u32 {
@@ -680,7 +688,7 @@ fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
         for i in 0..8 {
             let bit = (child_mask >> i) & 1;
             if bit != 0 {
-                nodes.push(create_node(0, 0));
+                nodes.push(create_node(0, 0, 0));
             }
         }
     }
@@ -724,22 +732,25 @@ fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
         242458112,
     ];
     
-    nodes.push(create_node(0, 0));
+    nodes.push(create_node(0, 0, 0));
     voxels.extend(colours.iter().copied());
     for i in 0..voxel_end {
+        let material_id = rng.gen_range(0..voxels.len() as u32);
         if i < node_end {
             let child_mask = data[data_start + i];
             let child_pointer = nodes.len() as u32;
-            nodes[i] = create_node(child_mask, child_pointer);
+            nodes[i] = create_node(child_mask, material_id, child_pointer);
             
             add_nodes(child_mask, &mut nodes);
         } else {
             let child_mask = 0;
-            let child_pointer = 2147483648 + rng.gen_range(0..voxels.len() as u32); // + voxels.len() as u32;
-            nodes[i] = create_node(child_mask, child_pointer);
-            
-            // voxels.push(create_leaf(&mut rng));
+            let child_pointer = 0;
+            nodes[i] = create_node(child_mask, material_id, child_pointer);
         }
+    }
+
+    for i in 0..50 {
+        println!("{:#066b}", nodes[i]);
     }
     
     (nodes, voxels)
