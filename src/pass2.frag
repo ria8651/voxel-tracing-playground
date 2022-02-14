@@ -129,13 +129,13 @@ Voxel FindVoxel(vec3 pos) {
         uint z = uint(pos.z > node_pos.z);
         uint child_index = x * 4 + y * 2 + z;
 
-        node_pos += (vec3(x, y, z) * 2 - 1) / pow(2, depth);
-
         // Leaf
         if (node.child_mask == 0 || depth > u.max_depth) {
             uint voxel = GetVoxel(node.material_id);
             return Voxel(1, voxel, depth, node_pos);
         }
+
+        node_pos += (vec3(x, y, z) * 2 - 1) / pow(2, depth);
 
         // Node
         uint bit = (node.child_mask >> child_index) & 1;

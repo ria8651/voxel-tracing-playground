@@ -37,7 +37,7 @@ type Vector3 = na::Vector3<f32>;
 type Matrix4 = na::Matrix4<f32>;
 
 const FILE: &str = "rsvo/dragon.rsvo";
-const BOTTOM_LAYER: usize = 8;
+const BOTTOM_LAYER: usize = 14;
 const RENDER_BUFFER_COUNT: u32 = 3;
 const FIBONACHI_LENGTH: usize = 20;
 
@@ -747,10 +747,6 @@ fn create_octree(file: &str, bottom_layer: usize) -> (Vec<u64>, Vec<u32>) {
             let child_pointer = 0;
             nodes[i] = create_node(child_mask, material_id, child_pointer);
         }
-    }
-
-    for i in 0..50 {
-        println!("{:#066b}", nodes[i]);
     }
     
     (nodes, voxels)
